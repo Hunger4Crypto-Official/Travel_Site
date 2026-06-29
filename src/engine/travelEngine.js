@@ -99,14 +99,20 @@ export class TravelEngine {
     const limit = clampLimit(query.limit);
     const offers = limit ? ranked.slice(0, limit) : ranked;
 
+    const summary = summarizePrices(ranked);
+
     return {
       query,
       sort: query.sort || 'price',
       count: offers.length,
       total: ranked.length,
+      currency: summary.currency,
+      priceComparable: summary.priceComparable,
+      cheapest: summary.cheapest,
+      bestByProvider: summary.bestByProvider,
       offers,
       providers: allResults.map(({ provider, error }) => ({ provider, status: error ? 'error' : 'success', error })),
-      ...(ranked.length === 0 ? { message: 'No offers matched your query.' } : {})
+      ...(message(ranked.length, summary.priceComparable))
     };
   }
 
@@ -177,4 +183,40 @@ function clampLimit(value) {
   const n = Number.parseInt(value, 10);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.min(n, 50);
+}
+
+// Builds the cheapest-price summary independently of the display sort, and
+// reports whether the offers can be compared on price directly (single currency).
+function summarizePrices(ranked) {
+  const priced = ranked.filter((offer) => offer.price && offer.price.amount !== null && offer.price.amount !== undefined);
+  const currencies = new Set(priced.map((offer) => offer.price.currency));
+  const priceComparable = currencies.size <= 1;
+  const byPrice = [...priced].sort((a, b) => a.price.amount - b.price.amount);
+
+  const bestByProvider = [];
+  const seen = new Set();
+  for (const offer of byPrice) {
+    if (seen.has(offer.provider)) continue;
+    seen.add(offer.provider);
+    bestByProvider.push({ provider: offer.provider, offerId: offer.id, price: offer.price });
+  }
+
+  const cheapest = byPrice[0]
+    ? { offerId: byPrice[0].id, provider: byPrice[0].provider, price: byPrice[0].price }
+    : null;
+
+  return {
+    currency: currencies.size === 1 ? [...currencies][0] : null,
+    priceComparable,
+    cheapest,
+    bestByProvider
+  };
+}
+
+function message(rankedCount, priceComparable) {
+  if (rankedCount === 0) return { message: 'No offers matched your query.' };
+  if (!priceComparable) {
+    return { message: 'Offers span multiple currencies; enable currency conversion (CURRENCY_CONVERSION_ENABLED) for a directly comparable lowest price.' };
+  }
+  return {};
 }

@@ -19,10 +19,17 @@ export class MockProvider extends BaseProvider {
       timeoutMs: options.timeoutMs
     });
     this.offsets = options.offsets || defaultOffsets;
+    // Verticals the demo must NOT serve because a real provider covers them.
+    // Keeps fake placeholder prices out of genuine lowest-price comparisons.
+    this.excludeTypes = new Set(options.excludeTypes || []);
+  }
+
+  supportedTypes() {
+    return Object.keys(this.offsets).filter((type) => !this.excludeTypes.has(type));
   }
 
   supports(type) {
-    return Object.keys(this.offsets).includes(type);
+    return this.supportedTypes().includes(type);
   }
 
   status() {
@@ -30,11 +37,12 @@ export class MockProvider extends BaseProvider {
       provider: this.name,
       enabled: this.enabled,
       ready: this.ready,
-      supports: Object.keys(this.offsets)
+      supports: this.supportedTypes()
     };
   }
 
   async search(type, query = {}) {
+    if (this.excludeTypes.has(type)) return [];
     return (this.offsets[type] || []).map((price, index) => normalizeOffer({
       type,
       provider: this.name,

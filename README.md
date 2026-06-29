@@ -21,6 +21,22 @@ THE Travel Club is a travel aggregation engine that connects flight, hotel, car,
 
 > This engine can compare available prices from connected providers, but it should not be marketed as a guaranteed lowest-price engine until live providers, fee normalization, availability validation, and checkout/deep-link tracking are implemented.
 
+## Lowest-price comparison
+
+For each vertical the engine fans out to every connected provider in parallel, normalizes the
+offers, ranks them lowest-price first, and reports:
+
+- `cheapest` — the single lowest-priced offer (computed independently of the display `sort`).
+- `bestByProvider` — each provider's lowest price, so you can see who quoted what.
+- `currency` / `priceComparable` — when offers span more than one currency and conversion is off,
+  `priceComparable` is `false` and the lowest price is **not** trustworthy; enable
+  `CURRENCY_CONVERSION_ENABLED=true` to normalize everything to `BASE_CURRENCY` first.
+
+To keep comparisons honest, the **demo provider automatically stops serving a vertical once a real
+provider is connected for it** (e.g. configuring Amadeus removes demo flight prices), so placeholder
+data can never win a real lowest-price race. Note that compared prices are still each provider's
+reported price — fee/tax normalization and availability checks are not yet implemented.
+
 ## API endpoints
 
 ```bash
@@ -52,6 +68,10 @@ request returns `429` with a `Retry-After` header; `405` responses include an `A
     "sort": "price",
     "count": 0,
     "total": 0,
+    "currency": "USD",
+    "priceComparable": true,
+    "cheapest": { "offerId": "…", "provider": "…", "price": { "amount": 0, "currency": "USD" } },
+    "bestByProvider": [],
     "offers": [],
     "providers": [],
     "message": "No offers matched your query."

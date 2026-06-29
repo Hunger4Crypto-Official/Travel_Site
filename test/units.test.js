@@ -188,6 +188,14 @@ test('MockProvider no longer fabricates airports or tracking', () => {
   assert.deepEqual(mock.status().supports, ['flights', 'hotels', 'cars']);
 });
 
+test('MockProvider can exclude verticals covered by real providers', async () => {
+  const mock = new MockProvider({ name: 'demo', excludeTypes: ['flights'] });
+  assert.equal(mock.supports('flights'), false);
+  assert.equal(mock.supports('hotels'), true);
+  assert.deepEqual(await mock.search('flights', {}), []); // never fabricates excluded verticals
+  assert.deepEqual(mock.status().supports, ['hotels', 'cars']);
+});
+
 // ---- provider status() + non-vertical short-circuits -----------------------
 
 test('providers report status and ignore unsupported verticals without calling out', async () => {

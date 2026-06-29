@@ -125,7 +125,7 @@ test('TravelEngine times out a hung provider and still returns other offers', as
 class FixedPriceProvider extends BaseProvider {
   constructor(name, offers) { super({ name }); this._offers = offers; }
   supports() { return true; }
-  async search() { return this._offers; }
+  async search() { return this._offers.map((offer) => ({ provider: this.name, ...offer })); }
 }
 
 test('TravelEngine converts offer prices to the base currency before ranking', async () => {
@@ -147,6 +147,46 @@ test('TravelEngine converts offer prices to the base currency before ranking', a
   assert.equal(eurOffer.price.amount, 200);
   assert.equal(eurOffer.price.currency, 'USD');
   assert.equal(eurOffer.price.original.currency, 'EUR');
+
+  // After conversion everything is one currency, so the lowest price is trustworthy.
+  assert.equal(result.priceComparable, true);
+  assert.equal(result.currency, 'USD');
+  assert.equal(result.cheapest.offerId, 'b');
+  assert.equal(result.cheapest.price.amount, 150);
+});
+
+test('TravelEngine reports the cheapest offer and the best price per provider', async () => {
+  const engine = new TravelEngine({ providers: [
+    new FixedPriceProvider('alpha', [
+      { id: 'a1', type: 'flights', price: { amount: 300, currency: 'USD' }, score: 1 },
+      { id: 'a2', type: 'flights', price: { amount: 250, currency: 'USD' }, score: 1 }
+    ]),
+    new FixedPriceProvider('beta', [
+      { id: 'b1', type: 'flights', price: { amount: 199, currency: 'USD' }, score: 1 }
+    ])
+  ] });
+
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+
+  assert.equal(result.priceComparable, true);
+  assert.equal(result.currency, 'USD');
+  assert.equal(result.cheapest.price.amount, 199);
+  assert.equal(result.cheapest.provider, 'beta');
+  assert.equal(result.bestByProvider.find((b) => b.provider === 'alpha').price.amount, 250);
+  assert.equal(result.bestByProvider.length, 2);
+});
+
+test('TravelEngine flags results that span multiple currencies as not directly comparable', async () => {
+  const engine = new TravelEngine({ providers: [
+    new FixedPriceProvider('eur', [{ id: 'e', type: 'flights', price: { amount: 180, currency: 'EUR' } }]),
+    new FixedPriceProvider('usd', [{ id: 'u', type: 'flights', price: { amount: 200, currency: 'USD' } }])
+  ] });
+
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+
+  assert.equal(result.priceComparable, false);
+  assert.equal(result.currency, null);
+  assert.match(result.message, /multiple currencies/);
 });
 
 test('TravelEngine keeps original prices when currency rates fail to load', async () => {

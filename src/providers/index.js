@@ -15,8 +15,16 @@ export function createProviders(config = {}) {
   const timeoutMs = config.providerTimeoutMs;
   const affiliateId = config.demoAffiliateId;
 
+  // Verticals already covered by a real provider — the demo must not fabricate
+  // prices for these, or a placeholder offer could win a real lowest-price race.
+  const realFlights = Boolean((config.amadeusClientId && config.amadeusClientSecret) || config.travelpayoutsToken);
+  const realHotels = Boolean(config.hotelbedsApiKey && config.hotelbedsSecret);
+  const demoExclude = [];
+  if (realFlights) demoExclude.push('flights');
+  if (realHotels) demoExclude.push('hotels');
+
   if (config.demoProviderEnabled !== false) {
-    providers.push(new MockProvider({ name: 'the-travel-club-demo', affiliateId, timeoutMs }));
+    providers.push(new MockProvider({ name: 'the-travel-club-demo', affiliateId, timeoutMs, excludeTypes: demoExclude }));
   }
 
   if (config.airportProviderEnabled !== false) {

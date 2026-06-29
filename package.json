@@ -1,0 +1,24 @@
+{
+  "name": "the-travel-club",
+  "version": "0.1.0",
+  "description": "THE Travel Club (Travel Happier Everywhere) travel API aggregation engine.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "lint": "find . -path ./node_modules -prune -o -name \"*.js\" -print | xargs -r -n 1 node --check",
+    "check": "npm run lint && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "travel",
+    "flights",
+    "hotels",
+    "cars",
+    "aggregator"
+  ],
+  "license": "MIT"
+}

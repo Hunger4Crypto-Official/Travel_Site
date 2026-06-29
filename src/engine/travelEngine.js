@@ -1,0 +1,122 @@
+import { rankOffers } from './ranking.js';
+import { stableCacheKey, validateQuery } from './queryValidation.js';
+import { ProviderCircuitBreaker } from './providerCircuitBreaker.js';
+import { MemoryCache } from '../utils/cache.js';
+import { TokenBucketRateLimiter } from '../utils/rateLimit.js';
+import { MetricsRegistry } from '../observability/metrics.js';
+
+export class TravelEngine {
+  constructor({
+    providers = [],
+    cache = new MemoryCache(),
+    limiter = new TokenBucketRateLimiter(),
+    metrics = new MetricsRegistry(),
+    circuitBreaker = new ProviderCircuitBreaker(),
+    maxQueryLength = 120,
+    logger = null
+  } = {}) {
+    this.providers = providers;
+    this.cache = cache;
+    this.limiter = limiter;
+    this.metrics = metrics;
+    this.circuitBreaker = circuitBreaker;
+    this.maxQueryLength = maxQueryLength;
+    this.logger = logger;
+  }
+
+  health() {
+    return this.readiness();
+  }
+
+  readiness() {
+    const providers = this.providers.map((provider) => ({
+      ...provider.status(),
+      circuit: this.circuitBreaker.status(provider.name)
+    }));
+    const readyProviders = providers.filter((provider) => provider.ready && !provider.circuit.open);
+    return {
+      ok: readyProviders.length > 0,
+      providers
+    };
+  }
+
+  metricsSnapshot() {
+    return this.metrics.snapshot();
+  }
+
+  async search(type, query = {}) {
+    const validatedQuery = validateQuery(type, query, { maxQueryLength: this.maxQueryLength });
+    if (!this.limiter.consume()) {
+      this.metrics.increment('search.rate_limited', { type });
+      const err = new Error('Rate limit exceeded');
+      err.statusCode = 429;
+      throw err;
+    }
+
+    const cacheKey = stableCacheKey(type, validatedQuery);
+    const cached = this.cache.get(cacheKey);
+    if (cached !== undefined) {
+      this.metrics.increment('search.cache_hit', { type });
+      return cached;
+    }
+
+    this.metrics.increment('search.cache_miss', { type });
+    const startedAt = Date.now();
+    const value = await this.executeSearch(type, validatedQuery);
+    this.metrics.observe('search.duration_ms', Date.now() - startedAt, { type });
+    return this.cache.set(cacheKey, value);
+  }
+
+  async executeSearch(type, query) {
+    const activeProviders = this.providers.filter((provider) => (
+      provider.ready && provider.supports(type) && this.circuitBreaker.canCall(provider.name)
+    ));
+
+    const settled = await Promise.allSettled(activeProviders.map((provider) => this.searchProvider(provider, type, query)));
+
+    const providerResults = settled.map((result) => result.status === 'fulfilled'
+      ? result.value
+      : { provider: result.reason?.provider || 'unknown', offers: [], error: 'Provider failed' });
+
+    const skippedProviders = this.providers
+      .filter((provider) => provider.ready && provider.supports(type) && !this.circuitBreaker.canCall(provider.name))
+      .map((provider) => ({ provider: provider.name, offers: [], error: 'Provider circuit is open' }));
+
+    const allResults = [...providerResults, ...skippedProviders];
+    const offers = rankOffers(allResults.flatMap((result) => result.offers), { sort: query.sort });
+    return {
+      query,
+      count: offers.length,
+      offers,
+      providers: allResults.map(({ provider, error }) => ({ provider, status: error ? 'error' : 'success', error }))
+    };
+  }
+
+  async searchProvider(provider, type, query) {
+    let timeout;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeout = setTimeout(() => {
+        const err = new Error(`Provider timed out after ${provider.timeoutMs}ms`);
+        err.provider = provider.name;
+        reject(err);
+      }, provider.timeoutMs);
+    });
+
+    try {
+      const startedAt = Date.now();
+      const offers = await Promise.race([provider.search(type, query), timeoutPromise]);
+      this.circuitBreaker.recordSuccess(provider.name);
+      this.metrics.increment('provider.success', { provider: provider.name, type });
+      this.metrics.observe('provider.duration_ms', Date.now() - startedAt, { provider: provider.name, type });
+      return { provider: provider.name, offers };
+    } catch (err) {
+      this.circuitBreaker.recordFailure(provider.name);
+      this.metrics.increment('provider.failure', { provider: provider.name, type });
+      this.logger?.warn('Provider search failed', { provider: provider.name, type, error: err.message });
+      err.provider = provider.name;
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+}

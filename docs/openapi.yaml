@@ -1,0 +1,111 @@
+openapi: 3.1.0
+info:
+  title: THE Travel Club API
+  version: 1.0.0
+  description: Enterprise contract for Travel Happier Everywhere aggregation endpoints.
+servers:
+  - url: http://localhost:3000
+security:
+  - ApiKeyAuth: []
+paths:
+  /health:
+    get:
+      security: []
+      summary: Public liveness check.
+      responses:
+        '200':
+          description: Process is alive.
+  /ready:
+    get:
+      summary: Internal readiness and provider diagnostics.
+      responses:
+        '200':
+          description: At least one provider is ready.
+        '503':
+          description: No provider is currently ready.
+  /metrics:
+    get:
+      summary: Internal in-process counters and timing snapshots.
+      responses:
+        '200':
+          description: Metrics snapshot.
+  /v1/flights/search:
+    get:
+      summary: Search flight offers.
+      parameters:
+        - in: query
+          name: from
+          required: true
+          schema: { type: string, minLength: 3, maxLength: 120 }
+        - in: query
+          name: to
+          required: true
+          schema: { type: string, minLength: 3, maxLength: 120 }
+        - in: query
+          name: date
+          schema: { type: string, format: date }
+        - in: query
+          name: sort
+          schema: { type: string, enum: [price, score] }
+      responses:
+        '200': { description: Ranked offers. }
+        '400': { description: Invalid query. }
+        '401': { description: Authentication required. }
+        '403': { description: Forbidden. }
+        '429': { description: Rate limit exceeded. }
+  /v1/hotels/search:
+    get:
+      summary: Search hotel offers.
+      parameters:
+        - in: query
+          name: city
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 120 }
+        - in: query
+          name: checkin
+          schema: { type: string, format: date }
+        - in: query
+          name: checkout
+          schema: { type: string, format: date }
+      responses:
+        '200': { description: Ranked offers. }
+        '400': { description: Invalid query. }
+  /v1/cars/search:
+    get:
+      summary: Search car rental offers.
+      parameters:
+        - in: query
+          name: city
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '200': { description: Ranked offers. }
+        '400': { description: Invalid query. }
+  /v1/airport/info:
+    get:
+      summary: Look up airport information.
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema: { type: string, minLength: 3, maxLength: 4 }
+      responses:
+        '200': { description: Airport information. }
+        '400': { description: Invalid query. }
+  /v1/flights/live:
+    get:
+      summary: Track live flight/aircraft data.
+      parameters:
+        - in: query
+          name: icao24
+          required: true
+          schema: { type: string, minLength: 6, maxLength: 6 }
+      responses:
+        '200': { description: Tracking information. }
+        '400': { description: Invalid query. }
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key

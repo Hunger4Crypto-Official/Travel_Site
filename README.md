@@ -1,128 +1,132 @@
-Travel API Aggregator
-✈️ Overview
-The Travel API Aggregator unifies multiple free‑tier and public travel APIs into a single backend service. It provides:
+# THE Travel Club
 
-Global flight search
+**THE** stands for **Travel Happier Everywhere**.
 
-Hotel search
+THE Travel Club is a travel aggregation engine that will connect flight, hotel, car, airport, routing, and aviation data providers behind one consistent API. The current implementation ships with a working local engine and demo provider so the backend can run now while real API credentials and provider contracts are gathered later.
 
-Car rentals
+## What this engine does today
 
-Airport data
+- Exposes HTTP endpoints for flights, hotels, cars, airport info, and flight tracking.
+- Aggregates matching providers for a requested travel vertical.
+- Validates required search parameters before touching provider quota.
+- Normalizes offers into one response shape with optional affiliate metadata.
+- Ranks offers by lowest known total price first, then by score.
+- Supports score-first sorting with `sort=score` for future “best value” experiences.
+- Adds stable, order-independent in-memory caching to reduce repeated provider calls.
+- Adds a token-bucket rate limiter and per-provider timeout protection to protect provider quotas.
+- Uses a demo provider until production APIs are connected.
 
-Flight tracking
+> This engine can compare available prices from connected providers, but it should not be marketed as a guaranteed lowest-price engine until live providers, fee normalization, availability validation, and checkout/deep-link tracking are implemented.
 
-Distance & routing
+## API endpoints
 
-IATA/ICAO lookup
+```bash
+GET /health
+GET /ready
+GET /metrics
+GET /v1/flights/search?from=LAX&to=JFK&date=2026-07-01
+GET /v1/flights/search?from=LAX&to=JFK&date=2026-07-01&sort=score
+GET /v1/hotels/search?city=Las%20Vegas&checkin=2026-07-01&checkout=2026-07-05
+GET /v1/cars/search?city=Miami&date=2026-07-01
+GET /v1/airport/info?code=LAX
+GET /v1/flights/live?icao24=abc123
+```
 
-The goal is to offer developers a consistent interface for building travel apps, booking engines, dashboards, or research tools.
+## Unified response format
 
-🧩 Architecture
-Components
-API Gateway — Routes requests to the correct provider
+```json
+{
+  "status": "success",
+  "source": "the-travel-club-engine",
+  "data": {
+    "query": {},
+    "count": 0,
+    "offers": [],
+    "providers": []
+  },
+  "meta": {
+    "brand": {
+      "name": "THE Travel Club",
+      "acronym": "Travel Happier Everywhere",
+      "tagline": "Compare smarter. Travel happier. Everywhere."
+    }
+  }
+}
+```
 
-Provider Modules — Individual wrappers for each external API
+## Project structure
 
-Caching Layer — Reduces API calls and improves performance
+```text
+docs/
+  enterprise-readiness.md
+  openapi.yaml
+src/
+  config/
+    brand.js
+    env.js
+  engine/
+    normalizers.js
+    providerCircuitBreaker.js
+    queryValidation.js
+    ranking.js
+    travelEngine.js
+  observability/
+    logger.js
+    metrics.js
+  providers/
+    baseProvider.js
+    index.js
+    mockProvider.js
+  routes/
+    router.js
+  utils/
+    cache.js
+    formatter.js
+    http.js
+    rateLimit.js
+server.js
+test/
+  engine.test.js
+  router.test.js
+```
 
-Rate‑Limit Guard — Protects API keys from overuse
+## Installation
 
-Unified Response Formatter — Ensures consistent JSON output
-
-🔑 API Keys Required
-Requires Signup
-Skyscanner (SkyScraper)
-
-Priceline
-
-Travelpayouts
-
-Kiwi Tequila API
-
-AeroDataBox
-
-AviationStack
-
-Booking.com
-
-Expedia Rapid
-
-Hotelbeds
-
-Trueway Routing / Places
-
-Public / No Key
-OpenSky Network
-
-IATA/ICAO public lists
-
-Public airport datasets
-
-🔗 API Provider Links
-Flight Search & Pricing
-Skyscanner (SkyScraper): https://rapidapi.com/apidojo/api/skyscanner-api (rapidapi.com in Bing)
-
-Travelpayouts: https://www.travelpayouts.com/developers/api
-
-Kiwi Tequila: https://tequila.kiwi.com/portal/login
-
-Thunderbit Flight API: https://thunderbit.com/flight-api
-
-Priceline: https://rapidapi.com/apidojo/api/priceline-com (rapidapi.com in Bing)
-
-Flight Tracking & Aviation Data
-AeroDataBox: https://rapidapi.com/aerodatabox/api/aerodatabox (rapidapi.com in Bing)
-
-AviationStack: https://aviationstack.com
-
-OpenSky Network: https://opensky-network.org/api
-
-FlightAPI.io: https://flightapi.io
-
-FlightAware AeroAPI: https://flightaware.com/aeroapi
-
-Hotels
-Booking.com: https://rapidapi.com/apidojo/api/booking (rapidapi.com in Bing)
-
-Expedia Rapid: https://developers.expediagroup.com/rapid
-
-Hotelbeds: https://developer.hotelbeds.com
-
-Hotels API (Api Dojo): https://rapidapi.com/apidojo/api/hotels4 (rapidapi.com in Bing)
-
-Car Rentals
-Priceline Cars: https://rapidapi.com/apidojo/api/priceline-com (rapidapi.com in Bing)
-
-Expedia Cars: https://developers.expediagroup.com/rapid
-
-Travelpayouts Cars: https://www.travelpayouts.com/developers/api
-
-Airport, Distance & Routing
-Great Circle Mapper: https://www.gcmap.com/api
-
-Airport Info API: https://rapidapi.com/Active-api/api/airport-info (rapidapi.com in Bing)
-
-Trueway Routing: https://rapidapi.com/trueway/api/trueway-routing (rapidapi.com in Bing)
-
-Trueway Places: https://rapidapi.com/trueway/api/trueway-places (rapidapi.com in Bing)
-
-Google Distance Matrix: https://developers.google.com/maps/documentation/distance-matrix (developers.google.com in Bing)
-
-IATA / ICAO Codes
-IATA Codes: https://www.iata.org/en/publications/directories/code-search (iata.org in Bing)
-
-ICAO Codes: https://www.icao.int/publications/pages/doc7910.aspx (icao.int in Bing)
-
-📦 Installation
-bash
-git clone https://github.com/yourname/travel-api-aggregator
-cd travel-api-aggregator
+```bash
 npm install
-⚙️ Environment Variables
-Create a .env file:
+```
 
-bash
+This project currently uses only Node.js built-in modules, so `npm install` does not need to download runtime dependencies.
+
+## Run locally
+
+```bash
+npm start
+```
+
+The server defaults to `http://localhost:3000`.
+
+## Test
+
+```bash
+npm test
+npm run lint
+npm run check
+```
+
+## Enterprise operations
+
+- `docs/openapi.yaml` contains the API contract for versioned `/v1` endpoints.
+- `docs/enterprise-readiness.md` documents security, operations, provider onboarding, and ranking governance.
+- Runtime configuration is centralized in `src/config/env.js`.
+- Use `API_KEYS`, `REQUIRE_API_KEY=true`, and `ALLOWED_ORIGINS` in shared environments.
+- `/health` is public liveness; `/ready` and `/metrics` are diagnostics and should be protected.
+
+## API keys planned for future provider integrations
+
+Create a `.env` file when live providers are ready. The engine is designed so each provider module can read its own key and be registered from `src/providers/index.js`.
+
+```bash
 SKYSCANNER_KEY=
 KIWI_KEY=
 PRICELINE_KEY=
@@ -132,66 +136,29 @@ BOOKING_KEY=
 EXPEDIA_KEY=
 HOTELBEDS_KEY=
 TRUEWAY_KEY=
-Public APIs (OpenSky, IATA/ICAO) require no keys.
+```
 
-🚀 Usage
-Flight Search
-bash
-GET /flights/search?from=LAX&to=JFK&date=2024-07-01
-Hotel Search
-bash
-GET /hotels/search?city=Las%20Vegas&checkin=2024-07-01&checkout=2024-07-05
-Car Rentals
-bash
-GET /cars/search?city=Miami&date=2024-07-01
-Airport Info
-bash
-GET /airport/info?code=LAX
-Flight Tracking
-bash
-GET /flights/live?icao24=abc123
-📚 Unified Response Format
-json
-{
-  "status": "success",
-  "source": "provider_name",
-  "data": { }
-}
-🧱 Project Structure
-Code
-/src
-  /providers
-    skyscanner.js
-    kiwi.js
-    priceline.js
-    aerodatabox.js
-    aviationstack.js
-    booking.js
-    expedia.js
-    hotelbeds.js
-    trueway.js
-  /routes
-    flights.js
-    hotels.js
-    cars.js
-    airports.js
-    tracking.js
-  /utils
-    cache.js
-    rateLimit.js
-    formatter.js
-server.js
-README.md
-.env
-🛡️ Rate Limiting
-The aggregator includes:
+Public or no-key data sources may include OpenSky Network, public airport datasets, and IATA/ICAO lists.
 
-Burst protection
+## Future monetization hooks
 
-Retry logic
+The engine is structured to support revenue features later:
 
-Automatic fallback to secondary providers
+- Affiliate or partner deep links on each offer.
+- Sponsored placements with clear disclosure.
+- Premium price alerts.
+- B2B API tiers for other travel apps.
+- White-label widgets for publishers and travel agencies.
 
-🧪 Testing
-bash
-npm test
+## Provider integration checklist
+
+Provider modules should return normalized offers that include the final comparable price available from that provider. When affiliate or partner IDs are available, pass them into `normalizeOffer` so booking links can be tracked without changing the public response contract. The engine will isolate provider failures, enforce timeouts, and continue returning offers from successful providers.
+
+When a real provider API is available:
+
+1. Add a provider module under `src/providers/` that extends `BaseProvider`.
+2. Implement `supports(type)` for the verticals the provider can search.
+3. Implement `search(type, query)` and map provider-specific results through `normalizeOffer`.
+4. Register the provider in `src/providers/index.js`.
+5. Add tests covering normalization, ranking, and fallback behavior.
+6. Confirm each provider's caching, display, affiliate, and pricing rules before production use.

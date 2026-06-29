@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TravelEngine } from '../src/engine/travelEngine.js';
 import { MockProvider } from '../src/providers/mockProvider.js';
+import { AirportInfoProvider } from '../src/providers/airportInfoProvider.js';
 import { BaseProvider } from '../src/providers/baseProvider.js';
 import { rankOffers } from '../src/engine/ranking.js';
 import { stableCacheKey, validateQuery } from '../src/engine/queryValidation.js';
@@ -57,6 +58,27 @@ test('TravelEngine aggregates and ranks provider offers', async () => {
   assert.equal(result.count, 3);
   assert.equal(result.offers[0].price.amount, 312);
   assert.equal(result.providers[0].status, 'success');
+});
+
+test('TravelEngine echoes applied sort, reports total, and supports limit', async () => {
+  const engine = new TravelEngine({ providers: [new MockProvider({ name: 'demo' })] });
+
+  const all = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(all.sort, 'price');
+  assert.equal(all.total, 3);
+  assert.equal(all.count, 3);
+
+  const limited = await engine.search('flights', { from: 'LAX', to: 'JFK', limit: '1' });
+  assert.equal(limited.count, 1);
+  assert.equal(limited.total, 3); // total reflects all matches before limiting
+  assert.equal(limited.offers.length, 1);
+});
+
+test('TravelEngine returns a friendly message when nothing matches', async () => {
+  const engine = new TravelEngine({ providers: [new AirportInfoProvider()] });
+  const result = await engine.search('airports', { code: 'ZZZ' });
+  assert.equal(result.count, 0);
+  assert.equal(result.message, 'No offers matched your query.');
 });
 
 test('TravelEngine validates required query parameters', async () => {

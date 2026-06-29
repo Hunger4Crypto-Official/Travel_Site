@@ -24,38 +24,54 @@ THE Travel Club is a travel aggregation engine that connects flight, hotel, car,
 ## API endpoints
 
 ```bash
+GET /                       # service index: brand, version, endpoint discovery
+GET /openapi.yaml           # the live API contract (also /openapi.json, /v1/openapi.yaml)
 GET /health
 GET /ready
 GET /metrics
 GET /v1/flights/search?from=LAX&to=JFK&date=2026-07-01
-GET /v1/flights/search?from=LAX&to=JFK&date=2026-07-01&sort=score
-GET /v1/hotels/search?city=Las%20Vegas&checkin=2026-07-01&checkout=2026-07-05
+GET /v1/flights/search?from=LAX&to=JFK&date=2026-07-01&sort=score&limit=5
+GET /v1/hotels/search?city=Las%20Vegas&cityCode=LAS&checkin=2026-07-01&checkout=2026-07-05
 GET /v1/cars/search?city=Miami&date=2026-07-01
 GET /v1/airport/info?code=LAX
-GET /v1/flights/live?icao24=abc123
+GET /v1/flights/live?icao24=4b1814
 ```
+
+Common query parameters: `sort` (`price` | `score`), `limit` (1–50), and the numeric
+`adults` / `children` / `rooms`. Invalid values return a `400` naming the field. A throttled
+request returns `429` with a `Retry-After` header; `405` responses include an `Allow` header.
 
 ## Unified response format
 
 ```json
 {
   "status": "success",
-  "source": "the-travel-club-engine",
+  "source": "the-travel-club",
   "data": {
     "query": {},
+    "sort": "price",
     "count": 0,
+    "total": 0,
     "offers": [],
-    "providers": []
+    "providers": [],
+    "message": "No offers matched your query."
   },
   "meta": {
     "brand": {
       "name": "THE Travel Club",
       "acronym": "Travel Happier Everywhere",
       "tagline": "Compare smarter. Travel happier. Everywhere."
-    }
+    },
+    "requestId": "…",
+    "version": "1.0.0"
   }
 }
 ```
+
+`count` is the number of offers returned (after any `limit`); `total` is how many matched before
+limiting. `message` appears only when nothing matched. Every response — success or error — carries
+`meta.requestId` and `meta.version`. Error responses use `{ "status": "error", "error": { message,
+statusCode, details }, "meta": { requestId, version } }`.
 
 ## Project structure
 

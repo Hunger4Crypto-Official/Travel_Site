@@ -16,8 +16,8 @@ function fakeEngine(overrides = {}) {
   };
 }
 
-async function withServer(config, engine, fn) {
-  const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config }));
+async function withServer(config, engine, fn, openapiSpec = null) {
+  const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec }));
   server.listen(0);
   await once(server, 'listening');
   const { port } = server.address();
@@ -31,6 +31,54 @@ async function withServer(config, engine, fn) {
 
 const openConfig = { allowedOrigins: ['*'], requireApiKey: false, apiKeys: [] };
 
+test('root index lists endpoints and is cacheable', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const res = await fetch(`${base}/`);
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=300');
+    assert.equal(body.data.endpoints.flights.startsWith('/v1/flights/search'), true);
+    assert.equal(body.data.documentation, '/openapi.yaml');
+    assert.equal(body.meta.version, '1.0.0');
+  });
+});
+
+test('OpenAPI spec is served as YAML when available, 404 otherwise', async () => {
+  const spec = 'openapi: 3.1.0\ninfo:\n  title: test\n';
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const res = await fetch(`${base}/openapi.yaml`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /yaml/);
+    assert.match(await res.text(), /openapi: 3\.1\.0/);
+  }, spec);
+
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    assert.equal((await fetch(`${base}/openapi.yaml`)).status, 404);
+  });
+});
+
+test('responses carry a consistent envelope (source, version, requestId, brand)', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const res = await fetch(`${base}/v1/flights/search?from=LAX&to=JFK`);
+    const body = await res.json();
+    assert.equal(body.source, 'the-travel-club');
+    assert.equal(body.meta.version, '1.0.0');
+    assert.equal(body.meta.brand.name, brand.name);
+    assert.equal(Boolean(body.meta.requestId), true);
+  });
+});
+
+test('429 responses include a Retry-After header and retryAfter detail', async () => {
+  const limited = fakeEngine({ search: async () => { const e = new Error('Rate limit exceeded'); e.statusCode = 429; e.retryAfter = 30; e.publicDetails = { retryAfter: 30 }; throw e; } });
+  await withServer(openConfig, limited, async (base) => {
+    const res = await fetch(`${base}/v1/flights/search?from=LAX&to=JFK`);
+    const body = await res.json();
+    assert.equal(res.status, 429);
+    assert.equal(res.headers.get('retry-after'), '30');
+    assert.equal(body.error.details.retryAfter, 30);
+  });
+});
+
 test('OPTIONS preflight returns 204 and CORS wildcard echoes origin', async () => {
   await withServer(openConfig, fakeEngine(), async (base) => {
     const res = await fetch(`${base}/v1/flights/search`, { method: 'OPTIONS', headers: { origin: 'https://any.example' } });
@@ -40,19 +88,21 @@ test('OPTIONS preflight returns 204 and CORS wildcard echoes origin', async () =
   });
 });
 
-test('non-GET methods are rejected with 405', async () => {
+test('non-GET methods are rejected with 405 and an Allow header', async () => {
   await withServer(openConfig, fakeEngine(), async (base) => {
     const res = await fetch(`${base}/v1/flights/search`, { method: 'POST' });
     assert.equal(res.status, 405);
+    assert.equal(res.headers.get('allow'), 'GET, OPTIONS');
   });
 });
 
-test('unknown routes return a structured 404', async () => {
+test('unknown routes return a structured 404 listing available routes', async () => {
   await withServer(openConfig, fakeEngine(), async (base) => {
     const res = await fetch(`${base}/nope`);
     const body = await res.json();
     assert.equal(res.status, 404);
     assert.equal(body.error.statusCode, 404);
+    assert.ok(body.error.details.availableRoutes.includes('/v1/flights/search'));
   });
 });
 

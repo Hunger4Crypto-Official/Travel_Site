@@ -54,6 +54,14 @@ test('validateQuery enforces icao24 and date ordering and sort', () => {
   assert.throws(() => validateQuery('flights', { from: 'LAX', to: 'JFK', sort: 'bogus' }), /Invalid sort/);
 });
 
+test('validateQuery enforces non-negative integers for numeric fields', () => {
+  assert.throws(() => validateQuery('flights', { from: 'LAX', to: 'JFK', adults: 'two' }), /Invalid adults/);
+  assert.throws(() => validateQuery('flights', { from: 'LAX', to: 'JFK', limit: '-1' }), /Invalid limit/);
+  assert.throws(() => validateQuery('hotels', { city: 'X', rooms: '1.5' }), /Invalid rooms/);
+  const ok = validateQuery('flights', { from: 'LAX', to: 'JFK', adults: '2', children: '0', limit: '10' });
+  assert.equal(ok.adults, '2');
+});
+
 test('validateQuery trims and returns a normalized query for valid input', () => {
   const out = validateQuery('flights', { from: ' lax ', to: 'JFK', date: '2026-07-01', sort: 'score' });
   assert.equal(out.from, 'lax');

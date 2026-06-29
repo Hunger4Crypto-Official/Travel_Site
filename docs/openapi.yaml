@@ -8,6 +8,22 @@ servers:
 security:
   - ApiKeyAuth: []
 paths:
+  /:
+    get:
+      security: []
+      summary: Service index with brand, version, and endpoint discovery.
+      responses:
+        '200':
+          description: Service metadata and a map of available endpoints.
+  /openapi.yaml:
+    get:
+      security: []
+      summary: Fetch this OpenAPI specification (also at /openapi.json and /v1/openapi.yaml).
+      responses:
+        '200':
+          description: The OpenAPI document.
+          content:
+            application/yaml: {}
   /health:
     get:
       security: []
@@ -47,11 +63,21 @@ paths:
         - in: query
           name: sort
           schema: { type: string, enum: [price, score] }
+        - in: query
+          name: limit
+          description: Maximum number of offers to return (1-50).
+          schema: { type: integer, minimum: 1, maximum: 50 }
       responses:
         '200': { description: Ranked offers. }
         '400': { description: Invalid query. }
         '401': { description: Authentication required. }
         '403': { description: Forbidden. }
+        '429':
+          description: Rate limit exceeded.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema: { type: integer }
         '429': { description: Rate limit exceeded. }
   /v1/hotels/search:
     get:

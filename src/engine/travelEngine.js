@@ -56,6 +56,8 @@ export class TravelEngine {
       this.metrics.increment('search.rate_limited', { type });
       const err = new Error('Rate limit exceeded');
       err.statusCode = 429;
+      err.retryAfter = typeof this.limiter.retryAfterSeconds === 'function' ? this.limiter.retryAfterSeconds() : 60;
+      err.publicDetails = { retryAfter: err.retryAfter };
       throw err;
     }
 
@@ -92,12 +94,19 @@ export class TravelEngine {
     const allResults = [...providerResults, ...skippedProviders];
     const rawOffers = allResults.flatMap((result) => result.offers);
     const normalizedOffers = await this.applyCurrency(rawOffers);
-    const offers = rankOffers(normalizedOffers, { sort: query.sort });
+    const ranked = rankOffers(normalizedOffers, { sort: query.sort });
+
+    const limit = clampLimit(query.limit);
+    const offers = limit ? ranked.slice(0, limit) : ranked;
+
     return {
       query,
+      sort: query.sort || 'price',
       count: offers.length,
+      total: ranked.length,
       offers,
-      providers: allResults.map(({ provider, error }) => ({ provider, status: error ? 'error' : 'success', error }))
+      providers: allResults.map(({ provider, error }) => ({ provider, status: error ? 'error' : 'success', error })),
+      ...(ranked.length === 0 ? { message: 'No offers matched your query.' } : {})
     };
   }
 
@@ -161,4 +170,11 @@ export class TravelEngine {
 
 function roundMoney(amount) {
   return Math.round(amount * 100) / 100;
+}
+
+function clampLimit(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(n, 50);
 }

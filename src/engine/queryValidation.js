@@ -9,10 +9,11 @@ const requiredFields = {
 const knownFields = new Set([
   'from', 'to', 'date', 'returnDate', 'adults', 'children', 'cabin',
   'city', 'cityCode', 'checkin', 'checkout', 'rooms',
-  'code', 'icao24', 'sort'
+  'code', 'icao24', 'sort', 'limit'
 ]);
 
 const cityCodeFields = new Set(['cityCode']);
+const integerFields = new Set(['adults', 'children', 'rooms', 'limit']);
 
 const dateFields = new Set(['date', 'returnDate', 'checkin', 'checkout']);
 
@@ -41,6 +42,9 @@ export function validateQuery(type, query = {}, { maxQueryLength = 120, maxParam
     }
     if (cityCodeFields.has(key) && !/^[A-Za-z]{3}$/.test(String(value))) {
       throwBadRequest(`Invalid ${key}. Expected a 3-letter city/location code`, { type, field: key });
+    }
+    if (integerFields.has(key) && !/^\d+$/.test(String(value))) {
+      throwBadRequest(`Invalid ${key}. Expected a non-negative integer`, { type, field: key });
     }
   }
 

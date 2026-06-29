@@ -23,6 +23,11 @@ export class TokenBucketRateLimiter {
     this.tokens = Math.min(this.capacity, this.tokens + refillAmount);
     this.updatedAt = now;
   }
+
+  // Whole seconds a client should wait for at least one token to refill.
+  retryAfterSeconds() {
+    return Math.max(1, Math.ceil(60 / (this.refillPerMinute || 1)));
+  }
 }
 
 // Per-client rate limiting: each client key gets its own token bucket so one
@@ -52,5 +57,9 @@ export class KeyedRateLimiter {
       this.buckets.set(key, bucket);
     }
     return bucket.consume(tokens);
+  }
+
+  retryAfterSeconds() {
+    return Math.max(1, Math.ceil(60 / (this.refillPerMinute || 1)));
   }
 }

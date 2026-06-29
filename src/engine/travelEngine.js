@@ -13,6 +13,8 @@ export class TravelEngine {
     metrics = new MetricsRegistry(),
     circuitBreaker = new ProviderCircuitBreaker(),
     maxQueryLength = 120,
+    currencyConverter = null,
+    baseCurrency = null,
     logger = null
   } = {}) {
     this.providers = providers;
@@ -21,6 +23,8 @@ export class TravelEngine {
     this.metrics = metrics;
     this.circuitBreaker = circuitBreaker;
     this.maxQueryLength = maxQueryLength;
+    this.currencyConverter = currencyConverter;
+    this.baseCurrency = baseCurrency ? baseCurrency.toUpperCase() : null;
     this.logger = logger;
   }
 
@@ -83,13 +87,39 @@ export class TravelEngine {
       .map((provider) => ({ provider: provider.name, offers: [], error: 'Provider circuit is open' }));
 
     const allResults = [...providerResults, ...skippedProviders];
-    const offers = rankOffers(allResults.flatMap((result) => result.offers), { sort: query.sort });
+    const rawOffers = allResults.flatMap((result) => result.offers);
+    const normalizedOffers = await this.applyCurrency(rawOffers);
+    const offers = rankOffers(normalizedOffers, { sort: query.sort });
     return {
       query,
       count: offers.length,
       offers,
       providers: allResults.map(({ provider, error }) => ({ provider, status: error ? 'error' : 'success', error }))
     };
+  }
+
+  // Convert every offer's price into the configured base currency so that
+  // ranking-by-price compares like for like across providers. On any failure
+  // the original prices are kept unchanged.
+  async applyCurrency(offers) {
+    if (!this.currencyConverter || !this.baseCurrency || offers.length === 0) return offers;
+    try {
+      await this.currencyConverter.ensureRates();
+    } catch (err) {
+      this.logger?.warn('Currency rate refresh failed', { error: err.message });
+      return offers;
+    }
+
+    return offers.map((offer) => {
+      const original = offer.price;
+      if (!original || original.currency === this.baseCurrency || original.amount === null) return offer;
+      const converted = this.currencyConverter.convert(original.amount, original.currency, this.baseCurrency);
+      if (converted === null) return offer;
+      return {
+        ...offer,
+        price: { amount: roundMoney(converted), currency: this.baseCurrency, original }
+      };
+    });
   }
 
   async searchProvider(provider, type, query) {
@@ -119,4 +149,8 @@ export class TravelEngine {
       clearTimeout(timeout);
     }
   }
+}
+
+function roundMoney(amount) {
+  return Math.round(amount * 100) / 100;
 }

@@ -62,6 +62,10 @@ paths:
           required: true
           schema: { type: string, minLength: 1, maxLength: 120 }
         - in: query
+          name: cityCode
+          description: Optional 3-letter IATA/destination code used by real hotel providers (e.g. Hotelbeds).
+          schema: { type: string, minLength: 3, maxLength: 3 }
+        - in: query
           name: checkin
           schema: { type: string, format: date }
         - in: query

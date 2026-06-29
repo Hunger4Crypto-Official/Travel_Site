@@ -9,9 +9,13 @@ import { TokenBucketRateLimiter } from './src/utils/rateLimit.js';
 import { createLogger } from './src/observability/logger.js';
 import { MetricsRegistry } from './src/observability/metrics.js';
 import { ProviderCircuitBreaker } from './src/engine/providerCircuitBreaker.js';
+import { CurrencyConverter } from './src/utils/currency.js';
 
 const config = loadConfig();
 const logger = createLogger({ level: config.requestLogLevel });
+const currencyConverter = config.currencyConversionEnabled
+  ? new CurrencyConverter({ base: config.baseCurrency, ttlMs: config.currencyTtlMs })
+  : null;
 const engine = new TravelEngine({
   providers: createProviders(config),
   cache: new MemoryCache({ ttlMs: config.cacheTtlMs, maxEntries: config.cacheMaxEntries }),
@@ -19,6 +23,8 @@ const engine = new TravelEngine({
   metrics: new MetricsRegistry(),
   circuitBreaker: new ProviderCircuitBreaker({ failureThreshold: config.providerFailureThreshold, cooldownMs: config.providerCooldownMs }),
   maxQueryLength: config.maxQueryLength,
+  currencyConverter,
+  baseCurrency: config.currencyConversionEnabled ? config.baseCurrency : null,
   logger
 });
 

@@ -1,5 +1,6 @@
 import { BaseProvider } from './baseProvider.js';
 import { normalizeOffer } from '../engine/normalizers.js';
+import { fetchJson } from '../utils/httpClient.js';
 
 const DEFAULT_BASE_URL = 'https://opensky-network.org/api';
 
@@ -57,33 +58,16 @@ export class OpenSkyProvider extends BaseProvider {
 
   async search(type, query = {}) {
     if (type !== 'tracking') return [];
-    if (typeof this.fetchImpl !== 'function') {
-      throw new Error('No fetch implementation available for OpenSky provider');
-    }
 
     const icao24 = String(query.icao24 || '').trim().toLowerCase();
     const url = `${this.baseUrl}/states/all?icao24=${encodeURIComponent(icao24)}`;
+    const payload = await fetchJson(url, {
+      fetchImpl: this.fetchImpl,
+      timeoutMs: this.timeoutMs,
+      headers: this.buildHeaders()
+    });
 
-    const controller = new AbortController();
-    const timeout = Number.isFinite(this.timeoutMs)
-      ? setTimeout(() => controller.abort(), this.timeoutMs)
-      : null;
-
-    let response;
-    try {
-      response = await this.fetchImpl(url, { headers: this.buildHeaders(), signal: controller.signal });
-    } finally {
-      if (timeout) clearTimeout(timeout);
-    }
-
-    if (!response.ok) {
-      throw new Error(`OpenSky request failed with status ${response.status}`);
-    }
-
-    const payload = await response.json();
     const states = Array.isArray(payload?.states) ? payload.states : [];
-    if (states.length === 0) return [];
-
     return states.map((state) => this.toOffer(state, payload.time));
   }
 

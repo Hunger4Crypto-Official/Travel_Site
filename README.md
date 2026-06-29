@@ -125,28 +125,42 @@ npm run check
 - Use `API_KEYS`, `REQUIRE_API_KEY=true`, and `ALLOWED_ORIGINS` in shared environments.
 - `/health` is public liveness; `/ready` and `/metrics` are diagnostics and should be protected.
 
-## API keys planned for future provider integrations
+## Providers
 
-Create a `.env` file when live providers are ready. The engine is designed so each provider module can read its own key and be registered from `src/providers/index.js`.
+All providers extend `BaseProvider` and are registered in `src/providers/index.js`. No-key
+providers run by default; key-based providers register **only when their credentials are set**,
+so an unconfigured provider never makes a network call. Every offer flows through the same
+`normalizeOffer` shape and the shared, audited HTTP client (`src/utils/httpClient.js`), which
+enforces per-provider timeouts and a response-size ceiling.
 
-```bash
-SKYSCANNER_KEY=
-KIWI_KEY=
-PRICELINE_KEY=
-AERODATABOX_KEY=
-AVIATIONSTACK_KEY=
-BOOKING_KEY=
-EXPEDIA_KEY=
-HOTELBEDS_KEY=
-TRUEWAY_KEY=
-```
+| Provider | Verticals | Credentials | Notes |
+|---|---|---|---|
+| Demo (`the-travel-club-demo`) | flights, hotels, cars | none | Placeholder data for verticals awaiting paid contracts. |
+| IATA/ICAO reference | airports | none | Bundled dataset (`src/providers/data/airports.js`), fully offline. |
+| OpenSky Network | tracking | none (optional login) | Live flight positions. `OPENSKY_USERNAME`/`OPENSKY_PASSWORD` raise rate limits. |
+| ADS-B (adsb.lol, airplanes.live) | tracking | none | Community ADS-B fallbacks alongside OpenSky. |
+| Amadeus Self-Service | flights | `AMADEUS_CLIENT_ID`, `AMADEUS_CLIENT_SECRET` | OAuth2 token cached until expiry. `AMADEUS_ENV=test\|production`. |
+| Hotelbeds APItude | hotels | `HOTELBEDS_API_KEY`, `HOTELBEDS_SECRET` | SHA256-signed; needs a `cityCode` query param. `HOTELBEDS_ENV=test\|production`. |
+| AeroDataBox (RapidAPI) | airports | `AERODATABOX_RAPIDAPI_KEY` | Live airport detail enrichment. |
+| Travelpayouts Data API | flights | `TRAVELPAYOUTS_TOKEN` (`TRAVELPAYOUTS_MARKER`) | Cached cheapest fares (7-day cache). |
 
-Public or no-key data sources already wired in:
+> **Aviationstack** is intentionally not wired: its endpoints key on a flight *number*, not the
+> `icao24` transponder hex the tracking vertical uses, so it cannot map cleanly to the current
+> contract.
 
-- **OpenSky Network** powers live flight tracking (`/v1/flights/live`). Anonymous access needs no key; optional `OPENSKY_USERNAME`/`OPENSKY_PASSWORD` raise the rate limit. The host `opensky-network.org` must be reachable through the environment's network egress policy for live data; when it is blocked or unreachable, the engine reports that provider as `error` and still returns the rest of the response.
-- A bundled **IATA/ICAO airport dataset** (`src/providers/data/airports.js`) powers airport info (`/v1/airport/info`) with no network access. Add more airports to that file to widen coverage.
+⚠️ **Network egress:** every external host (`opensky-network.org`, `api.adsb.lol`,
+`api.airplanes.live`, `*.amadeus.com`, `api.test.hotelbeds.com`, `aerodatabox.p.rapidapi.com`,
+`api.travelpayouts.com`, `api.frankfurter.app`) must be allowed by the environment's network
+policy. When a host is blocked or a provider fails, the engine isolates it (circuit breaker +
+timeout), reports it as `error`, and still returns offers from the providers that succeeded.
 
-Provider toggles: set `OPENSKY_ENABLED=false` or `AIRPORT_PROVIDER_ENABLED=false` to disable either real provider; `DEMO_PROVIDER_ENABLED=false` disables the demo flights/hotels/cars data.
+### Toggles & currency
+
+- Disable providers with `DEMO_PROVIDER_ENABLED=false`, `AIRPORT_PROVIDER_ENABLED=false`,
+  `OPENSKY_ENABLED=false`, `ADSB_ENABLED=false`.
+- Set `CURRENCY_CONVERSION_ENABLED=true` and `BASE_CURRENCY=USD` to normalize every offer's price
+  into one currency (via the free, no-key Frankfurter API) before ranking, so cross-provider price
+  comparison is apples-to-apples.
 
 ## Future monetization hooks
 

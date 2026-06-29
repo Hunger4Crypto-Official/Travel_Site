@@ -8,9 +8,11 @@ const requiredFields = {
 
 const knownFields = new Set([
   'from', 'to', 'date', 'returnDate', 'adults', 'children', 'cabin',
-  'city', 'checkin', 'checkout', 'rooms',
+  'city', 'cityCode', 'checkin', 'checkout', 'rooms',
   'code', 'icao24', 'sort'
 ]);
+
+const cityCodeFields = new Set(['cityCode']);
 
 const dateFields = new Set(['date', 'returnDate', 'checkin', 'checkout']);
 
@@ -28,6 +30,9 @@ export function validateQuery(type, query = {}, { maxQueryLength = 120 } = {}) {
     }
     if (dateFields.has(key) && !isIsoDate(value)) {
       throwBadRequest(`Invalid date format for ${key}. Expected YYYY-MM-DD`, { type, field: key });
+    }
+    if (cityCodeFields.has(key) && !/^[A-Za-z]{3}$/.test(String(value))) {
+      throwBadRequest(`Invalid ${key}. Expected a 3-letter city/location code`, { type, field: key });
     }
   }
 

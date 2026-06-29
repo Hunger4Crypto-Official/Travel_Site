@@ -6,6 +6,8 @@ import { BaseProvider } from '../src/providers/baseProvider.js';
 import { rankOffers } from '../src/engine/ranking.js';
 import { stableCacheKey, validateQuery } from '../src/engine/queryValidation.js';
 import { MemoryCache } from '../src/utils/cache.js';
+import { CurrencyConverter } from '../src/utils/currency.js';
+import { TokenBucketRateLimiter } from '../src/utils/rateLimit.js';
 
 class ThrowingProvider extends BaseProvider {
   constructor() { super({ name: 'throwing' }); }
@@ -84,10 +86,85 @@ test('TravelEngine caches identical validated searches', async () => {
   assert.equal(provider.calls, 1);
 });
 
+class HangingProvider extends BaseProvider {
+  constructor() { super({ name: 'hang', timeoutMs: 10 }); }
+  supports(type) { return type === 'flights'; }
+  search() { return new Promise(() => {}); } // never resolves -> must be timed out
+}
+
+test('TravelEngine times out a hung provider and still returns other offers', async () => {
+  const engine = new TravelEngine({ providers: [new MockProvider({ name: 'demo' }), new HangingProvider()] });
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+
+  assert.equal(result.count, 3); // the demo provider's offers still come back
+  assert.equal(result.providers.find((p) => p.provider === 'hang').status, 'error');
+});
+
+class FixedPriceProvider extends BaseProvider {
+  constructor(name, offers) { super({ name }); this._offers = offers; }
+  supports() { return true; }
+  async search() { return this._offers; }
+}
+
+test('TravelEngine converts offer prices to the base currency before ranking', async () => {
+  const converter = new CurrencyConverter({ base: 'USD', rates: { EUR: 0.5 }, now: () => 0 });
+  const engine = new TravelEngine({
+    providers: [new FixedPriceProvider('eur', [
+      { id: 'a', type: 'flights', price: { amount: 100, currency: 'EUR' }, score: 1 } // 200 USD
+    ]), new FixedPriceProvider('usd', [
+      { id: 'b', type: 'flights', price: { amount: 150, currency: 'USD' }, score: 1 } // cheaper once normalized
+    ])],
+    currencyConverter: converter,
+    baseCurrency: 'USD'
+  });
+
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+
+  assert.equal(result.offers[0].id, 'b'); // 150 USD ranks ahead of 200 USD
+  const eurOffer = result.offers.find((o) => o.id === 'a');
+  assert.equal(eurOffer.price.amount, 200);
+  assert.equal(eurOffer.price.currency, 'USD');
+  assert.equal(eurOffer.price.original.currency, 'EUR');
+});
+
+test('TravelEngine keeps original prices when currency rates fail to load', async () => {
+  const failing = new CurrencyConverter({ base: 'USD', now: () => 0 });
+  failing.ensureRates = async () => { throw new Error('rates down'); };
+  const engine = new TravelEngine({
+    providers: [new FixedPriceProvider('eur', [{ id: 'a', type: 'flights', price: { amount: 100, currency: 'EUR' } }])],
+    currencyConverter: failing,
+    baseCurrency: 'USD',
+    logger: { warn() {}, info() {} }
+  });
+
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(result.offers[0].price.currency, 'EUR');
+});
+
 test('TravelEngine exposes readiness with provider health', () => {
   const engine = new TravelEngine({ providers: [new MockProvider({ name: 'demo' })] });
   const readiness = engine.readiness();
 
   assert.equal(readiness.ok, true);
   assert.deepEqual(readiness.providers[0].supports, ['flights', 'hotels', 'cars']);
+  // health() is an alias of readiness().
+  assert.deepEqual(engine.health(), readiness);
+});
+
+test('TravelEngine exposes a metrics snapshot', async () => {
+  const engine = new TravelEngine({ providers: [new MockProvider({ name: 'demo' })] });
+  await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  const snap = engine.metricsSnapshot();
+  assert.ok('counters' in snap && 'timings' in snap);
+});
+
+test('TravelEngine throws 429 when the rate limiter is exhausted', async () => {
+  const engine = new TravelEngine({
+    providers: [new MockProvider({ name: 'demo' })],
+    limiter: new TokenBucketRateLimiter({ capacity: 0, refillPerMinute: 0 })
+  });
+  await assert.rejects(
+    () => engine.search('flights', { from: 'LAX', to: 'JFK' }),
+    (err) => err.statusCode === 429
+  );
 });

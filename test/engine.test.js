@@ -89,5 +89,5 @@ test('TravelEngine exposes readiness with provider health', () => {
   const readiness = engine.readiness();
 
   assert.equal(readiness.ok, true);
-  assert.deepEqual(readiness.providers[0].supports, ['flights', 'hotels', 'cars', 'airports', 'tracking']);
+  assert.deepEqual(readiness.providers[0].supports, ['flights', 'hotels', 'cars']);
 });

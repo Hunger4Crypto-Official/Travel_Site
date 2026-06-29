@@ -1,12 +1,13 @@
 import { BaseProvider } from './baseProvider.js';
 import { normalizeOffer } from '../engine/normalizers.js';
 
+// Demo pricing for the verticals that still require paid provider APIs.
+// `airports` and `tracking` are served by real no-key providers, so the demo
+// provider no longer fabricates data for them.
 const defaultOffsets = {
   flights: [312, 344, 389],
   hotels: [129, 151, 176],
-  cars: [48, 57, 71],
-  airports: [0],
-  tracking: [0]
+  cars: [48, 57, 71]
 };
 
 export class MockProvider extends BaseProvider {
@@ -34,12 +35,6 @@ export class MockProvider extends BaseProvider {
   }
 
   async search(type, query = {}) {
-    if (type === 'airports') {
-      return [normalizeOffer({ type, provider: this.name, id: `airport-${query.code}`, price: 0, title: `Airport info for ${query.code}`, affiliateId: this.affiliateId, details: query })];
-    }
-    if (type === 'tracking') {
-      return [normalizeOffer({ type, provider: this.name, id: `tracking-${query.icao24}`, price: 0, title: `Live flight tracking for ${query.icao24}`, affiliateId: this.affiliateId, details: { ...query, note: 'Mock tracking data until a live aviation API key is connected.' } })];
-    }
     return (this.offsets[type] || []).map((price, index) => normalizeOffer({
       type,
       provider: this.name,

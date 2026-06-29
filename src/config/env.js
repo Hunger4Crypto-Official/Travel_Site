@@ -30,7 +30,11 @@ export function loadConfig(env = process.env) {
     apiKeys,
     requireApiKey: env.REQUIRE_API_KEY === 'true' || (nodeEnv === 'production' && apiKeys.length > 0),
     demoProviderEnabled: env.DEMO_PROVIDER_ENABLED !== 'false',
-    demoAffiliateId: env.DEMO_AFFILIATE_ID || null
+    demoAffiliateId: env.DEMO_AFFILIATE_ID || null,
+    airportProviderEnabled: env.AIRPORT_PROVIDER_ENABLED !== 'false',
+    openSkyEnabled: env.OPENSKY_ENABLED !== 'false',
+    openSkyUsername: env.OPENSKY_USERNAME || null,
+    openSkyPassword: env.OPENSKY_PASSWORD || null
   };
 }
 

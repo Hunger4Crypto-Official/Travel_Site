@@ -2,11 +2,14 @@
 
 **THE** stands for **Travel Happier Everywhere**.
 
-THE Travel Club is a travel aggregation engine that will connect flight, hotel, car, airport, routing, and aviation data providers behind one consistent API. The current implementation ships with a working local engine and demo provider so the backend can run now while real API credentials and provider contracts are gathered later.
+THE Travel Club is a travel aggregation engine that connects flight, hotel, car, airport, routing, and aviation data providers behind one consistent API. The verticals that need no credentials are already wired to **real** data sources; the demo provider covers the verticals that still require paid provider contracts, so the backend works end to end today.
 
 ## What this engine does today
 
 - Exposes HTTP endpoints for flights, hotels, cars, airport info, and flight tracking.
+- Returns **real airport information** for IATA/ICAO codes from a bundled public dataset (no API key, no network).
+- Returns **real live flight positions** from the OpenSky Network public REST API (no API key required).
+- Falls back to a demo provider for flights, hotels, and cars until those paid provider APIs are connected.
 - Aggregates matching providers for a requested travel vertical.
 - Validates required search parameters before touching provider quota.
 - Normalizes offers into one response shape with optional affiliate metadata.
@@ -14,7 +17,7 @@ THE Travel Club is a travel aggregation engine that will connect flight, hotel, 
 - Supports score-first sorting with `sort=score` for future “best value” experiences.
 - Adds stable, order-independent in-memory caching to reduce repeated provider calls.
 - Adds a token-bucket rate limiter and per-provider timeout protection to protect provider quotas.
-- Uses a demo provider until production APIs are connected.
+- Isolates provider failures (e.g. an unreachable live source) so the rest of the response still succeeds.
 
 > This engine can compare available prices from connected providers, but it should not be marketed as a guaranteed lowest-price engine until live providers, fee normalization, availability validation, and checkout/deep-link tracking are implemented.
 
@@ -138,7 +141,12 @@ HOTELBEDS_KEY=
 TRUEWAY_KEY=
 ```
 
-Public or no-key data sources may include OpenSky Network, public airport datasets, and IATA/ICAO lists.
+Public or no-key data sources already wired in:
+
+- **OpenSky Network** powers live flight tracking (`/v1/flights/live`). Anonymous access needs no key; optional `OPENSKY_USERNAME`/`OPENSKY_PASSWORD` raise the rate limit. The host `opensky-network.org` must be reachable through the environment's network egress policy for live data; when it is blocked or unreachable, the engine reports that provider as `error` and still returns the rest of the response.
+- A bundled **IATA/ICAO airport dataset** (`src/providers/data/airports.js`) powers airport info (`/v1/airport/info`) with no network access. Add more airports to that file to widen coverage.
+
+Provider toggles: set `OPENSKY_ENABLED=false` or `AIRPORT_PROVIDER_ENABLED=false` to disable either real provider; `DEMO_PROVIDER_ENABLED=false` disables the demo flights/hotels/cars data.
 
 ## Future monetization hooks
 

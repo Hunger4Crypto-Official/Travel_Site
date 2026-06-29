@@ -68,7 +68,33 @@ export async function fetchText(url, {
 }
 
 async function readCapped(response, maxBytes) {
-  // Fast path: when the body is small and available as text, just read it.
+  // Reject early when the upstream declares an oversized body.
+  const declared = Number(response.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new HttpError('Upstream response exceeded maximum allowed size', { statusCode: 502 });
+  }
+
+  // Preferred path: stream and enforce the cap incrementally so a hostile or
+  // buggy upstream cannot force us to buffer an unbounded body into memory.
+  const body = response.body;
+  if (body && typeof body.getReader === 'function') {
+    const reader = body.getReader();
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength ?? value.length;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch { /* best effort */ }
+        throw new HttpError('Upstream response exceeded maximum allowed size', { statusCode: 502 });
+      }
+      chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  }
+
+  // Fallback for fetch implementations that only expose text().
   const text = await response.text();
   if (Buffer.byteLength(text, 'utf8') > maxBytes) {
     throw new HttpError('Upstream response exceeded maximum allowed size', { statusCode: 502 });

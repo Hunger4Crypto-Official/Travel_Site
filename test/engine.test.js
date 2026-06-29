@@ -7,7 +7,7 @@ import { rankOffers } from '../src/engine/ranking.js';
 import { stableCacheKey, validateQuery } from '../src/engine/queryValidation.js';
 import { MemoryCache } from '../src/utils/cache.js';
 import { CurrencyConverter } from '../src/utils/currency.js';
-import { TokenBucketRateLimiter } from '../src/utils/rateLimit.js';
+import { TokenBucketRateLimiter, KeyedRateLimiter } from '../src/utils/rateLimit.js';
 
 class ThrowingProvider extends BaseProvider {
   constructor() { super({ name: 'throwing' }); }
@@ -167,4 +167,21 @@ test('TravelEngine throws 429 when the rate limiter is exhausted', async () => {
     () => engine.search('flights', { from: 'LAX', to: 'JFK' }),
     (err) => err.statusCode === 429
   );
+});
+
+test('TravelEngine rate-limits each client key independently', async () => {
+  const engine = new TravelEngine({
+    providers: [new MockProvider({ name: 'demo' })],
+    limiter: new KeyedRateLimiter({ capacity: 1, refillPerMinute: 0 })
+  });
+
+  await engine.search('flights', { from: 'LAX', to: 'JFK' }, { clientKey: 'alice' });
+  // alice is now exhausted...
+  await assert.rejects(
+    () => engine.search('flights', { from: 'LAX', to: 'SFO' }, { clientKey: 'alice' }),
+    (err) => err.statusCode === 429
+  );
+  // ...but bob is unaffected.
+  const bob = await engine.search('flights', { from: 'LAX', to: 'JFK' }, { clientKey: 'bob' });
+  assert.equal(bob.count, 3);
 });

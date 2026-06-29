@@ -10,6 +10,30 @@ export function errorResponse(status) {
   return { ok: false, status, async text() { return ''; } };
 }
 
+// A response that exposes a streaming body (getReader) and headers.get, like a
+// real fetch Response, so the httpClient's incremental size-cap path is tested.
+export function streamResponse(chunks, { status = 200, contentLength } = {}) {
+  const encoded = chunks.map((c) => (typeof c === 'string' ? Buffer.from(c) : c));
+  let i = 0;
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (name) => (name.toLowerCase() === 'content-length' && contentLength != null ? String(contentLength) : null) },
+    body: {
+      getReader() {
+        return {
+          async read() {
+            if (i >= encoded.length) return { done: true, value: undefined };
+            return { done: false, value: encoded[i++] };
+          },
+          async cancel() { i = encoded.length; }
+        };
+      }
+    },
+    async text() { return Buffer.concat(encoded).toString('utf8'); }
+  };
+}
+
 // Returns a fetch stub that always resolves to `response` and records calls.
 export function stubFetch(response) {
   const calls = [];

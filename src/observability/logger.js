@@ -25,7 +25,7 @@ export function createLogger({ level = 'info', sink = console } = {}) {
 
 function redact(value) {
   return JSON.parse(JSON.stringify(value, (key, current) => {
-    if (/key|token|secret|password|authorization/i.test(key)) return '[REDACTED]';
+    if (/key|token|secret|password|authorization|signature|bearer|credential/i.test(key)) return '[REDACTED]';
     return current;
   }));
 }

@@ -2,14 +2,14 @@ import { rankOffers } from './ranking.js';
 import { stableCacheKey, validateQuery } from './queryValidation.js';
 import { ProviderCircuitBreaker } from './providerCircuitBreaker.js';
 import { MemoryCache } from '../utils/cache.js';
-import { TokenBucketRateLimiter } from '../utils/rateLimit.js';
+import { KeyedRateLimiter } from '../utils/rateLimit.js';
 import { MetricsRegistry } from '../observability/metrics.js';
 
 export class TravelEngine {
   constructor({
     providers = [],
     cache = new MemoryCache(),
-    limiter = new TokenBucketRateLimiter(),
+    limiter = new KeyedRateLimiter(),
     metrics = new MetricsRegistry(),
     circuitBreaker = new ProviderCircuitBreaker(),
     maxQueryLength = 120,
@@ -48,15 +48,18 @@ export class TravelEngine {
     return this.metrics.snapshot();
   }
 
-  async search(type, query = {}) {
-    const validatedQuery = validateQuery(type, query, { maxQueryLength: this.maxQueryLength });
-    if (!this.limiter.consume()) {
+  async search(type, query = {}, context = {}) {
+    // Rate limit per client before doing validation/aggregation work so abusive
+    // traffic is shed as early and cheaply as possible.
+    const clientKey = context.clientKey || 'global';
+    if (!this.limiter.consume(clientKey)) {
       this.metrics.increment('search.rate_limited', { type });
       const err = new Error('Rate limit exceeded');
       err.statusCode = 429;
       throw err;
     }
 
+    const validatedQuery = validateQuery(type, query, { maxQueryLength: this.maxQueryLength });
     const cacheKey = stableCacheKey(type, validatedQuery);
     const cached = this.cache.get(cacheKey);
     if (cached !== undefined) {
@@ -132,9 +135,14 @@ export class TravelEngine {
       }, provider.timeoutMs);
     });
 
+    const searchPromise = provider.search(type, query);
+    // If the timeout wins the race, the provider promise may still settle later.
+    // Attach a no-op handler so a late rejection is never an unhandled rejection.
+    searchPromise.catch(() => {});
+
     try {
       const startedAt = Date.now();
-      const offers = await Promise.race([provider.search(type, query), timeoutPromise]);
+      const offers = await Promise.race([searchPromise, timeoutPromise]);
       this.circuitBreaker.recordSuccess(provider.name);
       this.metrics.increment('provider.success', { provider: provider.name, type });
       this.metrics.observe('provider.duration_ms', Date.now() - startedAt, { provider: provider.name, type });

@@ -5,7 +5,7 @@ import { TravelEngine } from './src/engine/travelEngine.js';
 import { createProviders } from './src/providers/index.js';
 import { handleRequest } from './src/routes/router.js';
 import { MemoryCache } from './src/utils/cache.js';
-import { TokenBucketRateLimiter } from './src/utils/rateLimit.js';
+import { KeyedRateLimiter } from './src/utils/rateLimit.js';
 import { createLogger } from './src/observability/logger.js';
 import { MetricsRegistry } from './src/observability/metrics.js';
 import { ProviderCircuitBreaker } from './src/engine/providerCircuitBreaker.js';
@@ -19,7 +19,7 @@ const currencyConverter = config.currencyConversionEnabled
 const engine = new TravelEngine({
   providers: createProviders(config),
   cache: new MemoryCache({ ttlMs: config.cacheTtlMs, maxEntries: config.cacheMaxEntries }),
-  limiter: new TokenBucketRateLimiter({ capacity: config.rateLimitCapacity, refillPerMinute: config.rateLimitRefillPerMinute }),
+  limiter: new KeyedRateLimiter({ capacity: config.rateLimitCapacity, refillPerMinute: config.rateLimitRefillPerMinute }),
   metrics: new MetricsRegistry(),
   circuitBreaker: new ProviderCircuitBreaker({ failureThreshold: config.providerFailureThreshold, cooldownMs: config.providerCooldownMs }),
   maxQueryLength: config.maxQueryLength,

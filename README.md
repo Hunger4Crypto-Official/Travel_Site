@@ -125,6 +125,31 @@ npm run check
 - Use `API_KEYS`, `REQUIRE_API_KEY=true`, and `ALLOWED_ORIGINS` in shared environments.
 - `/health` is public liveness; `/ready` and `/metrics` are diagnostics and should be protected.
 
+## Security hardening
+
+The codebase has been through a multi-lens red-team audit (SSRF/injection, auth/secrets,
+DoS/resource-exhaustion, error-leakage, correctness). Notable protections:
+
+- **Per-client rate limiting** — each authenticated principal (or client IP) gets its own token
+  bucket, so one abusive caller can't exhaust everyone's quota. Tracked keys are LRU-bounded.
+- **Streaming response cap** — the shared HTTP client rejects oversized upstream bodies via
+  `Content-Length` and incremental streaming, so a hostile provider can't OOM the process.
+- **No secret leakage** — the authenticated principal is a one-way SHA-256 fingerprint (never key
+  characters); logs redact `key|token|secret|password|authorization|signature|bearer|credential`
+  fields; 5xx responses expose only `Unexpected error` with no internal details.
+- **Bounded input** — every query parameter is length-capped and the parameter count is limited,
+  keeping the request, cache key, and downstream serialization bounded.
+- **Failure isolation** — per-provider timeouts + circuit breaker; a slow/failed provider is
+  reported as `error` and never blocks the rest of the response.
+
+Two items are deployment choices rather than code defects:
+
+- `/ready` and `/metrics` are open when no `API_KEYS` are configured (keyless local dev). Set
+  `API_KEYS` (and optionally `REQUIRE_API_KEY=true`) in shared/production environments to gate them.
+- Ranking compares prices numerically. When providers can return **mixed currencies**, enable
+  `CURRENCY_CONVERSION_ENABLED=true` (+ `BASE_CURRENCY`) so every offer is normalized to one
+  currency before ranking.
+
 ## Providers
 
 All providers extend `BaseProvider` and are registered in `src/providers/index.js`. No-key

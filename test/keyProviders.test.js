@@ -85,6 +85,25 @@ test('AmadeusProvider maps a sparse direct offer (no segments, fractional price)
   assert.equal(offers[0].details.departure, null);
 });
 
+test('AmadeusProvider scores a round trip on its worst leg, not the summed stops', async () => {
+  const roundTrip = {
+    id: '2', price: { grandTotal: '500.00', currency: 'USD' },
+    itineraries: [
+      { segments: [{ departure: { iataCode: 'LAX' }, arrival: { iataCode: 'ORD' }, carrierCode: 'AA' }, { departure: { iataCode: 'ORD' }, arrival: { iataCode: 'JFK' }, carrierCode: 'AA' }] },
+      { segments: [{ departure: { iataCode: 'JFK' }, arrival: { iataCode: 'DFW' }, carrierCode: 'AA' }, { departure: { iataCode: 'DFW' }, arrival: { iataCode: 'LAX' }, carrierCode: 'AA' }] }
+    ]
+  };
+  const fetchImpl = stubFetch((url) => url.includes('/oauth2/token')
+    ? jsonResponse({ access_token: 't', expires_in: 1799 })
+    : jsonResponse({ data: [roundTrip] }));
+  const provider = new AmadeusProvider({ clientId: 'id', clientSecret: 'secret', fetchImpl });
+  const offers = await provider.search('flights', { from: 'LAX', to: 'JFK', date: '2026-07-01', returnDate: '2026-07-08' });
+
+  assert.deepEqual(offers[0].details.stopsPerLeg, [1, 1]);
+  assert.equal(offers[0].details.stops, 1); // worst leg, not 2 (the old summed value)
+  assert.equal(offers[0].score, 90);
+});
+
 test('AmadeusProvider passes optional return/children/cabin filters through', async () => {
   const fetchImpl = stubFetch((url) => url.includes('/oauth2/token')
     ? jsonResponse({ access_token: 't', expires_in: 1799 })
@@ -142,13 +161,14 @@ test('HotelbedsProvider returns [] without a valid city code and is unconfigured
 test('AeroDataBoxProvider looks up airports and sends RapidAPI headers', async () => {
   const fetchImpl = stubFetch(jsonResponse({
     iata: 'LAX', icao: 'KLAX', fullName: 'Los Angeles Intl', municipalityName: 'Los Angeles',
-    country: { code: 'US' }, location: { lat: 33.9, lon: -118.4 }, timeZone: 'America/Los_Angeles', elevation: { feet: 125 }
+    countryCode: 'US', location: { lat: 33.9, lon: -118.4 }, timeZone: 'America/Los_Angeles', elevation: { feet: 125 }
   }));
   const provider = new AeroDataBoxProvider({ apiKey: 'RKEY', fetchImpl });
 
   const offers = await provider.search('airports', { code: 'lax' });
 
   assert.equal(offers.length, 1);
+  assert.equal(offers[0].details.country, 'US'); // mapped from countryCode
   assert.equal(offers[0].details.elevationFt, 125);
   assert.match(fetchImpl.calls[0].url, /\/airports\/iata\/LAX$/);
   assert.equal(fetchImpl.calls[0].options.headers['X-RapidAPI-Key'], 'RKEY');

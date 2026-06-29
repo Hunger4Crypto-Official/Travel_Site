@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fetchJson, fetchText, HttpError } from '../src/utils/httpClient.js';
 import { CurrencyConverter } from '../src/utils/currency.js';
 import { createProviders } from '../src/providers/index.js';
-import { jsonResponse, errorResponse, stubFetch, rejectingFetch, abortingFetch } from './helpers/fakeFetch.js';
+import { jsonResponse, errorResponse, stubFetch, rejectingFetch, abortingFetch, streamResponse } from './helpers/fakeFetch.js';
 
 // ---- httpClient ------------------------------------------------------------
 
@@ -44,10 +44,29 @@ test('fetchText requires a usable fetch implementation', async () => {
   );
 });
 
-test('fetchText enforces a maximum response size', async () => {
+test('fetchText enforces a maximum response size (text fallback path)', async () => {
   const big = stubFetch(jsonResponse('x'.repeat(50)));
   await assert.rejects(
     () => fetchText('https://x', { fetchImpl: big, maxBytes: 10 }),
+    (err) => err instanceof HttpError && /maximum allowed size/.test(err.message)
+  );
+});
+
+test('fetchText rejects early on an oversized Content-Length header', async () => {
+  const fetchImpl = stubFetch(streamResponse(['{}'], { contentLength: 9999 }));
+  await assert.rejects(
+    () => fetchText('https://x', { fetchImpl, maxBytes: 100 }),
+    (err) => err instanceof HttpError && /maximum allowed size/.test(err.message)
+  );
+});
+
+test('fetchText streams within the cap and aborts a stream that exceeds it', async () => {
+  const ok = stubFetch(streamResponse(['{"a"', ':1}']));
+  assert.deepEqual(await fetchJson('https://x', { fetchImpl: ok }), { a: 1 });
+
+  const tooBig = stubFetch(streamResponse(['12345', '67890', 'abcde'], {}));
+  await assert.rejects(
+    () => fetchText('https://x', { fetchImpl: tooBig, maxBytes: 8 }),
     (err) => err instanceof HttpError && /maximum allowed size/.test(err.message)
   );
 });
@@ -83,6 +102,18 @@ test('CurrencyConverter fetches and caches rates with a TTL', async () => {
   clock = 2000;
   await converter.ensureRates(); // stale -> refetch
   assert.equal(fetchImpl.calls.length, 2);
+});
+
+test('CurrencyConverter collapses concurrent refreshes into one request', async () => {
+  let resolveFetch;
+  const fetchImpl = stubFetch(() => new Promise((resolve) => { resolveFetch = () => resolve(jsonResponse({ rates: { EUR: 0.5 } })); }));
+  const converter = new CurrencyConverter({ base: 'USD', fetchImpl, now: () => 0 });
+
+  const a = converter.ensureRates();
+  const b = converter.ensureRates(); // shares the in-flight request
+  resolveFetch();
+  await Promise.all([a, b]);
+  assert.equal(fetchImpl.calls.length, 1);
 });
 
 test('CurrencyConverter throws on malformed rate payloads', async () => {

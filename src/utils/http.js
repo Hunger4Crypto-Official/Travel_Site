@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 
 export function createRequestContext(req) {
   return {
@@ -20,7 +20,11 @@ export function responseHeaders({ requestId, origin, allowedOrigins = [] }) {
     'x-request-id': requestId
   };
 
-  if (isOriginAllowed(origin, allowedOrigins)) {
+  if (allowedOrigins.includes('*')) {
+    // Header-based auth (no cookies), so a literal wildcard is safe and avoids
+    // reflecting an arbitrary Origin back to the caller.
+    headers['access-control-allow-origin'] = '*';
+  } else if (isOriginAllowed(origin, allowedOrigins)) {
     headers['access-control-allow-origin'] = origin;
   }
 
@@ -42,7 +46,7 @@ export function authenticate(req, { requireApiKey = false, apiKeys = [] } = {}) 
 
   const matched = apiKeys.some((key) => safeEqual(key, presented));
   return matched
-    ? { ok: true, principal: `api-key:${hashPreview(presented)}` }
+    ? { ok: true, principal: `api-key:${fingerprint(presented)}` }
     : { ok: false, statusCode: 403, message: 'Forbidden' };
 }
 
@@ -53,6 +57,8 @@ function safeEqual(expected, actual) {
   return timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
-function hashPreview(value) {
-  return `${value.slice(0, 4)}…${value.slice(-4)}`;
+// Non-reversible short fingerprint so a principal can be correlated in logs
+// without exposing any characters of the real API key.
+function fingerprint(value) {
+  return createHash('sha256').update(value).digest('hex').slice(0, 12);
 }

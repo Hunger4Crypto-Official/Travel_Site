@@ -104,7 +104,10 @@ export class AmadeusProvider extends BaseProvider {
     const first = segments[0];
     const last = segments[segments.length - 1];
     const carriers = [...new Set(segments.map((s) => s.carrierCode).filter(Boolean))];
-    const stops = Math.max(0, segments.length - itineraries.length);
+    // Stops are per leg: a leg with N segments has N-1 stops. Summing across legs
+    // would conflate the outbound and return journeys, so score on the worst leg.
+    const stopsPerLeg = itineraries.map((it) => Math.max(0, (Array.isArray(it.segments) ? it.segments.length : 0) - 1));
+    const stops = stopsPerLeg.length ? Math.max(...stopsPerLeg) : 0;
 
     return normalizeOffer({
       type: 'flights',
@@ -119,6 +122,7 @@ export class AmadeusProvider extends BaseProvider {
       details: {
         carriers,
         stops,
+        stopsPerLeg,
         oneWay: itineraries.length <= 1,
         bookableSeats: offer.numberOfBookableSeats ?? null,
         departure: first?.departure ?? null,

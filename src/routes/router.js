@@ -54,14 +54,24 @@ export async function handleRequest(req, res, { engine, brand, logger, config })
 
   try {
     const query = Object.fromEntries(url.searchParams.entries());
-    const data = await engine.search(type, query);
+    // Rate-limit per authenticated principal when available, else per client IP.
+    const clientKey = auth.principal && auth.principal !== 'anonymous' ? auth.principal : clientIp(req);
+    const data = await engine.search(type, query, { clientKey });
     return sendJson(res, 200, success('the-travel-club-engine', data, { brand, requestId: context.requestId, principal: auth.principal }), context, logger);
   } catch (err) {
     const statusCode = err.statusCode || 500;
     const publicMessage = statusCode >= 500 ? 'Unexpected error' : err.message;
+    // On 5xx only expose details that were explicitly marked public; never the
+    // raw internal err.details, which may carry implementation specifics.
+    const publicDetails = statusCode >= 500 ? err.publicDetails : (err.publicDetails || err.details);
     logger?.warn('Request failed', { requestId: context.requestId, statusCode, error: err.message, details: err.details });
-    return sendJson(res, statusCode, error(publicMessage, statusCode, err.publicDetails || err.details), context, logger);
+    return sendJson(res, statusCode, error(publicMessage, statusCode, publicDetails), context, logger);
   }
+}
+
+function clientIp(req) {
+  const forwarded = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || req.socket?.remoteAddress || 'unknown';
 }
 
 function setHeaders(res, headers) {

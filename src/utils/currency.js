@@ -22,6 +22,7 @@ export class CurrencyConverter {
     this.now = now || (() => Date.now());
     this.rates = null;
     this.fetchedAt = 0;
+    this.inflight = null;
     if (rates) this.seedRates(rates);
   }
 
@@ -36,6 +37,13 @@ export class CurrencyConverter {
 
   async ensureRates() {
     if (this.isFresh()) return this.rates;
+    // Collapse concurrent refreshes into a single upstream request.
+    if (this.inflight) return this.inflight;
+    this.inflight = this.refreshRates().finally(() => { this.inflight = null; });
+    return this.inflight;
+  }
+
+  async refreshRates() {
     const payload = await fetchJson(`${this.baseUrl}/latest?base=${encodeURIComponent(this.base)}`, {
       fetchImpl: this.fetchImpl,
       timeoutMs: this.timeoutMs,

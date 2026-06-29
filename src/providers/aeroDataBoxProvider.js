@@ -74,7 +74,7 @@ export class AeroDataBoxProvider extends BaseProvider {
         icao: airport.icao ?? null,
         name: airport.fullName || airport.name || null,
         city: airport.municipalityName ?? null,
-        country: airport.country?.code ?? null,
+        country: airport.countryCode ?? airport.country?.code ?? null,
         location: airport.location
           ? { lat: airport.location.lat ?? null, lon: airport.location.lon ?? null }
           : null,

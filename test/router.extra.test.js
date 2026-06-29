@@ -35,7 +35,8 @@ test('OPTIONS preflight returns 204 and CORS wildcard echoes origin', async () =
   await withServer(openConfig, fakeEngine(), async (base) => {
     const res = await fetch(`${base}/v1/flights/search`, { method: 'OPTIONS', headers: { origin: 'https://any.example' } });
     assert.equal(res.status, 204);
-    assert.equal(res.headers.get('access-control-allow-origin'), 'https://any.example');
+    // Wildcard config emits a literal '*' rather than reflecting the origin.
+    assert.equal(res.headers.get('access-control-allow-origin'), '*');
   });
 });
 
@@ -81,6 +82,31 @@ test('protected /ready and /metrics require an API key when keys are configured'
     assert.equal((await fetch(`${base}/ready`, { headers: { 'x-api-key': 'k' } })).status, 200);
     assert.equal((await fetch(`${base}/ready`, { headers: { authorization: 'Bearer k' } })).status, 200);
     assert.equal((await fetch(`${base}/ready`, { headers: { 'x-api-key': 'wrong' } })).status, 403);
+  });
+});
+
+test('authenticated principal in the response never exposes raw key characters', async () => {
+  const key = 'supersecretkey-abcdef123456';
+  const cfg = { allowedOrigins: ['*'], requireApiKey: true, apiKeys: [key] };
+  // Echo the principal back through the engine so we can inspect it.
+  const engine = fakeEngine({ search: async () => ({ query: {}, count: 0, offers: [], providers: [], echoMeta: true }) });
+  await withServer(cfg, engine, async (base) => {
+    const res = await fetch(`${base}/v1/flights/search?from=LAX&to=JFK`, { headers: { 'x-api-key': key } });
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.match(body.meta.principal, /^api-key:[0-9a-f]{12}$/);
+    assert.ok(!body.meta.principal.includes('supe'));
+    assert.ok(!body.meta.principal.includes('3456'));
+  });
+});
+
+test('5xx responses never include internal error details', async () => {
+  const leaky = fakeEngine({ search: async () => { const e = new Error('boom'); e.details = { internal: 'db dsn here' }; throw e; } });
+  await withServer(openConfig, leaky, async (base) => {
+    const res = await fetch(`${base}/v1/flights/search?from=LAX&to=JFK`);
+    const body = await res.json();
+    assert.equal(res.status, 500);
+    assert.ok(!JSON.stringify(body).includes('db dsn here'));
   });
 });
 

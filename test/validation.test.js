@@ -10,11 +10,22 @@ test('validateQuery reports multiple missing parameters (plural)', () => {
   assert.throws(() => validateQuery('flights', {}), /Missing required query parameters: from, to/);
 });
 
-test('validateQuery rejects over-long parameters', () => {
+test('validateQuery rejects over-long parameters (known and unknown)', () => {
   assert.throws(
     () => validateQuery('hotels', { city: 'x'.repeat(200) }, { maxQueryLength: 50 }),
     /too long: city/
   );
+  // Unknown fields are length-capped too, so they cannot bloat the cache key.
+  assert.throws(
+    () => validateQuery('flights', { from: 'LAX', to: 'JFK', junk: 'y'.repeat(200) }, { maxQueryLength: 50 }),
+    /too long: junk/
+  );
+});
+
+test('validateQuery rejects too many parameters', () => {
+  const many = { from: 'LAX', to: 'JFK' };
+  for (let i = 0; i < 30; i += 1) many[`p${i}`] = '1';
+  assert.throws(() => validateQuery('flights', many, { maxParams: 24 }), /Too many query parameters/);
 });
 
 test('validateQuery rejects malformed and impossible dates', () => {

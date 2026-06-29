@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { MemoryCache } from '../src/utils/cache.js';
 import { MetricsRegistry } from '../src/observability/metrics.js';
 import { createLogger } from '../src/observability/logger.js';
-import { TokenBucketRateLimiter } from '../src/utils/rateLimit.js';
+import { TokenBucketRateLimiter, KeyedRateLimiter } from '../src/utils/rateLimit.js';
 import { ProviderCircuitBreaker } from '../src/engine/providerCircuitBreaker.js';
 import { normalizeOffer, normalizePrice } from '../src/engine/normalizers.js';
 import { rankOffers } from '../src/engine/ranking.js';
@@ -99,6 +99,24 @@ test('TokenBucketRateLimiter depletes then refills over time', () => {
   assert.equal(limiter.consume(), false);
   limiter.updatedAt = Date.now() - 60000; // simulate a minute passing
   assert.equal(limiter.consume(), true);
+});
+
+test('TokenBucketRateLimiter coerces a non-numeric token argument to one', () => {
+  const limiter = new TokenBucketRateLimiter({ capacity: 1, refillPerMinute: 0 });
+  assert.equal(limiter.consume('client-key'), true); // treated as 1 token
+  assert.equal(limiter.consume('client-key'), false);
+});
+
+test('KeyedRateLimiter isolates clients and bounds tracked keys', () => {
+  const limiter = new KeyedRateLimiter({ capacity: 1, refillPerMinute: 0, maxKeys: 2 });
+  assert.equal(limiter.consume('a'), true);
+  assert.equal(limiter.consume('a'), false); // a is exhausted
+  assert.equal(limiter.consume('b'), true);  // b is independent
+
+  // Adding a third key evicts the least-recently-used ('a' was touched before 'b').
+  assert.equal(limiter.consume('c'), true);
+  assert.equal(limiter.buckets.size, 2);
+  assert.equal(limiter.consume('a'), true); // 'a' was evicted -> fresh bucket
 });
 
 // ---- ProviderCircuitBreaker ------------------------------------------------

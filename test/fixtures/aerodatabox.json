@@ -1,0 +1,10 @@
+{
+  "icao": "KLAX",
+  "iata": "LAX",
+  "fullName": "Los Angeles International",
+  "municipalityName": "Los Angeles",
+  "countryCode": "US",
+  "location": { "lat": 33.9425, "lon": -118.408 },
+  "timeZone": "America/Los_Angeles",
+  "elevation": { "feet": 125 }
+}

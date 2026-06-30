@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
+    "coverage": "node --test --experimental-test-coverage",
+    "smoke:live": "node scripts/liveSmoke.js",
     "lint": "find . -path ./node_modules -prune -o -name \"*.js\" -print | xargs -r -n 1 node --check",
     "check": "npm run lint && npm test"
   },

@@ -1,0 +1,6 @@
+{
+  "data": [
+    { "hotelId": "TESTHOTELA", "name": "Grand Test", "iataCode": "PAR" },
+    { "hotelId": "TESTHOTELB", "name": "Budget Test", "iataCode": "PAR" }
+  ]
+}

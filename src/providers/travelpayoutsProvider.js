@@ -76,8 +76,9 @@ export class TravelpayoutsProvider extends BaseProvider {
       type: 'flights',
       provider: this.name,
       id: `travelpayouts-${entry.origin}-${entry.destination}-${entry.departure_at || index}`,
-      price: Number(entry.price),
-      currency,
+      // Cached fare from Aviasales search history — not a verified all-in total.
+      price: { amount: Number(entry.price), total: Number(entry.price), currency, estimated: true },
+      freshness: 'cached',
       title: `${entry.origin} → ${entry.destination}${entry.airline ? ` (${entry.airline})` : ''}`,
       deepLink: entry.link ? `https://www.aviasales.com${entry.link}` : null,
       affiliateId: this.affiliateId || this.marker,

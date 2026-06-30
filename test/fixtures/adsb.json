@@ -1,0 +1,6 @@
+{
+  "now": 1700000010000,
+  "ac": [
+    { "hex": "4b1814", "flight": "SWR123  ", "r": "HB-JCA", "t": "A20N", "lat": 47.4, "lon": 8.5, "alt_baro": 38000, "alt_geom": 38500, "gs": 450, "track": 90, "baro_rate": 0, "squawk": "1000", "seen": 2 }
+  ]
+}

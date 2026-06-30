@@ -113,8 +113,15 @@ export class AmadeusProvider extends BaseProvider {
       type: 'flights',
       provider: this.name,
       id: `amadeus-${offer.id}`,
-      price: Number(offer.price?.grandTotal ?? offer.price?.total),
-      currency: offer.price?.currency || 'USD',
+      // Amadeus grandTotal is the verified all-in fare (base + taxes + fees).
+      price: {
+        amount: Number(offer.price?.grandTotal ?? offer.price?.total),
+        total: Number(offer.price?.grandTotal ?? offer.price?.total),
+        base: offer.price?.base !== undefined ? Number(offer.price.base) : null,
+        currency: offer.price?.currency || 'USD',
+        estimated: false
+      },
+      freshness: 'live',
       title: first && last
         ? `${first.departure?.iataCode} → ${last.arrival?.iataCode} (${carriers.join('/') || 'multi'})`
         : 'Flight offer',

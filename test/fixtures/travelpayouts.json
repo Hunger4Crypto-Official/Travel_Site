@@ -1,0 +1,6 @@
+{
+  "success": true,
+  "data": [
+    { "origin": "LAX", "destination": "JFK", "price": 199, "airline": "B6", "flight_number": 24, "departure_at": "2026-07-01T07:00:00Z", "return_at": null, "transfers": 0, "link": "/search/LAX0107JFK1" }
+  ]
+}

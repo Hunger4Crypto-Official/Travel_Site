@@ -3,6 +3,7 @@ import { AirportInfoProvider } from './airportInfoProvider.js';
 import { OpenSkyProvider } from './openSkyProvider.js';
 import { AdsbProvider } from './adsbProvider.js';
 import { AmadeusProvider } from './amadeusProvider.js';
+import { AmadeusHotelsProvider } from './amadeusHotelsProvider.js';
 import { HotelbedsProvider } from './hotelbedsProvider.js';
 import { AeroDataBoxProvider } from './aeroDataBoxProvider.js';
 import { TravelpayoutsProvider } from './travelpayoutsProvider.js';
@@ -17,8 +18,9 @@ export function createProviders(config = {}) {
 
   // Verticals already covered by a real provider — the demo must not fabricate
   // prices for these, or a placeholder offer could win a real lowest-price race.
-  const realFlights = Boolean((config.amadeusClientId && config.amadeusClientSecret) || config.travelpayoutsToken);
-  const realHotels = Boolean(config.hotelbedsApiKey && config.hotelbedsSecret);
+  const amadeusConfigured = Boolean(config.amadeusClientId && config.amadeusClientSecret);
+  const realFlights = Boolean(amadeusConfigured || config.travelpayoutsToken);
+  const realHotels = Boolean((config.hotelbedsApiKey && config.hotelbedsSecret) || amadeusConfigured);
   const demoExclude = [];
   if (realFlights) demoExclude.push('flights');
   if (realHotels) demoExclude.push('hotels');
@@ -47,6 +49,16 @@ export function createProviders(config = {}) {
 
   if (config.amadeusClientId && config.amadeusClientSecret) {
     providers.push(new AmadeusProvider({
+      clientId: config.amadeusClientId,
+      clientSecret: config.amadeusClientSecret,
+      environment: config.amadeusEnv,
+      affiliateId,
+      timeoutMs
+    }));
+  }
+
+  if (amadeusConfigured) {
+    providers.push(new AmadeusHotelsProvider({
       clientId: config.amadeusClientId,
       clientSecret: config.amadeusClientSecret,
       environment: config.amadeusEnv,

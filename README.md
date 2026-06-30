@@ -23,19 +23,34 @@ THE Travel Club is a travel aggregation engine that connects flight, hotel, car,
 
 ## Lowest-price comparison
 
-For each vertical the engine fans out to every connected provider in parallel, normalizes the
-offers, ranks them lowest-price first, and reports:
+For each vertical the engine fans out to every connected provider in parallel, then makes the
+comparison genuinely trustworthy:
 
-- `cheapest` — the single lowest-priced offer (computed independently of the display `sort`).
-- `bestByProvider` — each provider's lowest price, so you can see who quoted what.
-- `currency` / `priceComparable` — when offers span more than one currency and conversion is off,
-  `priceComparable` is `false` and the lowest price is **not** trustworthy; enable
-  `CURRENCY_CONVERSION_ENABLED=true` to normalize everything to `BASE_CURRENCY` first.
+- **All-in totals.** Every price carries `{ amount, total, base, currency, estimated }`. Ranking
+  uses the comparable `total` (base + taxes + fees), not whatever headline number a provider returns.
+- **De-duplication.** The same flight/hotel sold by multiple providers collapses into one offer;
+  the cheapest wins and the rest appear under `offer.alternatives` so you still see every price.
+- **Honest comparability.** `priceComparable` is `true` only when offers share one currency **and**
+  every price is a verified all-in total. A cached/estimated fare or a currency mismatch flips it to
+  `false` with an explanatory `message` instead of silently mis-ranking.
+- **Freshness.** Each offer is `live` or `cached`; the result's `freshness` is `live`, `cached`, or
+  `mixed`. Live data wins ties.
+- **Summaries.** `cheapest` (overall lowest, independent of display `sort`) and `bestByProvider`
+  (each provider's best price) are always present.
 
-To keep comparisons honest, the **demo provider automatically stops serving a vertical once a real
-provider is connected for it** (e.g. configuring Amadeus removes demo flight prices), so placeholder
-data can never win a real lowest-price race. Note that compared prices are still each provider's
-reported price — fee/tax normalization and availability checks are not yet implemented.
+The **demo provider automatically stops serving a vertical once a real provider is connected**, so
+placeholder data can never win a real race. Cross-currency comparison requires
+`CURRENCY_CONVERSION_ENABLED=true` (normalizes to `BASE_CURRENCY`).
+
+### Proving the mappings
+
+Because provider responses are only as trustworthy as the mapping, every mapper is checked two ways:
+
+- **Contract tests** (`test/contract.test.js`) run each mapper against a recorded, real-shaped API
+  response in `test/fixtures/` — the offline proof that field mappings are correct.
+- **Live smoke** (`npm run smoke:live`) hits each configured provider once against the real API and
+  prints the normalized result, so a mapping is proven end-to-end the moment credentials and network
+  egress are available. Unconfigured or unreachable providers are reported and skipped.
 
 ## API endpoints
 
@@ -70,9 +85,20 @@ request returns `429` with a `Retry-After` header; `405` responses include an `A
     "total": 0,
     "currency": "USD",
     "priceComparable": true,
-    "cheapest": { "offerId": "…", "provider": "…", "price": { "amount": 0, "currency": "USD" } },
+    "freshness": "live",
+    "cheapest": { "offerId": "…", "provider": "…", "price": { "amount": 0, "total": 0, "currency": "USD", "estimated": false } },
     "bestByProvider": [],
-    "offers": [],
+    "offers": [
+      {
+        "id": "…",
+        "provider": "amadeus",
+        "price": { "amount": 312.4, "total": 312.4, "base": 260, "currency": "USD", "estimated": false },
+        "freshness": "live",
+        "alternatives": [
+          { "provider": "travelpayouts", "price": { "amount": 320, "total": 320, "currency": "USD", "estimated": true } }
+        ]
+      }
+    ],
     "providers": [],
     "message": "No offers matched your query."
   },
@@ -148,9 +174,11 @@ The server defaults to `http://localhost:3000`.
 ## Test
 
 ```bash
-npm test
+npm test            # unit + contract tests
+npm run coverage    # tests with line/branch coverage
 npm run lint
-npm run check
+npm run check       # lint + test
+npm run smoke:live  # hit configured real providers once (needs keys + egress)
 ```
 
 ## Enterprise operations
@@ -200,8 +228,9 @@ enforces per-provider timeouts and a response-size ceiling.
 | IATA/ICAO reference | airports | none | Bundled dataset (`src/providers/data/airports.js`), fully offline. |
 | OpenSky Network | tracking | none (optional login) | Live flight positions. `OPENSKY_USERNAME`/`OPENSKY_PASSWORD` raise rate limits. |
 | ADS-B (adsb.lol, airplanes.live) | tracking | none | Community ADS-B fallbacks alongside OpenSky. |
-| Amadeus Self-Service | flights | `AMADEUS_CLIENT_ID`, `AMADEUS_CLIENT_SECRET` | OAuth2 token cached until expiry. `AMADEUS_ENV=test\|production`. |
-| Hotelbeds APItude | hotels | `HOTELBEDS_API_KEY`, `HOTELBEDS_SECRET` | SHA256-signed; needs a `cityCode` query param. `HOTELBEDS_ENV=test\|production`. |
+| Amadeus Self-Service | flights | `AMADEUS_CLIENT_ID`, `AMADEUS_CLIENT_SECRET` | OAuth2 token cached until expiry. Verified all-in totals. `AMADEUS_ENV=test\|production`. |
+| Amadeus Hotels | hotels | `AMADEUS_CLIENT_ID`, `AMADEUS_CLIENT_SECRET` | Hotels-by-city → offers; all-in totals. Resolves a free-text `city` to a code. |
+| Hotelbeds APItude | hotels | `HOTELBEDS_API_KEY`, `HOTELBEDS_SECRET` | SHA256-signed; accepts `cityCode` or a resolvable `city`. `HOTELBEDS_ENV=test\|production`. |
 | AeroDataBox (RapidAPI) | airports | `AERODATABOX_RAPIDAPI_KEY` | Live airport detail enrichment. |
 | Travelpayouts Data API | flights | `TRAVELPAYOUTS_TOKEN` (`TRAVELPAYOUTS_MARKER`) | Cached cheapest fares (7-day cache). |
 

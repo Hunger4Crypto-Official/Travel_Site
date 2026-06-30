@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { BaseProvider } from './baseProvider.js';
 import { normalizeOffer } from '../engine/normalizers.js';
 import { fetchJson } from '../utils/httpClient.js';
+import { resolveCityCode } from '../utils/geo.js';
 
 const HOSTS = {
   test: 'https://api.test.hotelbeds.com',
@@ -54,8 +55,9 @@ export class HotelbedsProvider extends BaseProvider {
   async search(type, query = {}) {
     if (type !== 'hotels') return [];
 
-    const destinationCode = String(query.cityCode || '').trim().toUpperCase();
-    // Hotelbeds requires a destination code, not a free-text city name.
+    // Hotelbeds needs a destination code; accept an explicit cityCode or resolve
+    // a free-text city name (e.g. "Las Vegas" -> "LAS") from the bundled dataset.
+    const destinationCode = resolveCityCode(query.cityCode || query.city) || '';
     if (!/^[A-Z]{3}$/.test(destinationCode)) return [];
 
     const body = JSON.stringify({
@@ -90,8 +92,9 @@ export class HotelbedsProvider extends BaseProvider {
       type: 'hotels',
       provider: this.name,
       id: `hotelbeds-${hotel.code}`,
-      price: Number(hotel.minRate),
-      currency: hotel.currency || 'USD',
+      // minRate is a "from" net rate; taxes/fees vary, so treat as an estimate.
+      price: { amount: Number(hotel.minRate), total: Number(hotel.minRate), currency: hotel.currency || 'USD', estimated: true },
+      freshness: 'live',
       title: hotel.name || `Hotel ${hotel.code}`,
       affiliateId: this.affiliateId,
       details: {

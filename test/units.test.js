@@ -136,9 +136,28 @@ test('ProviderCircuitBreaker opens after the failure threshold and reports statu
 
 // ---- normalizers -----------------------------------------------------------
 
-test('normalizePrice coerces invalid amounts to null', () => {
-  assert.deepEqual(normalizePrice('abc'), { amount: null, currency: 'USD' });
-  assert.deepEqual(normalizePrice(10, 'EUR'), { amount: 10, currency: 'EUR' });
+test('normalizePrice coerces invalid amounts to null and exposes a comparable total', () => {
+  const bad = normalizePrice('abc');
+  assert.equal(bad.amount, null);
+  assert.equal(bad.total, null);
+  assert.equal(bad.currency, 'USD');
+  assert.equal(bad.estimated, false);
+
+  const ok = normalizePrice(10, 'EUR');
+  assert.equal(ok.amount, 10);
+  assert.equal(ok.total, 10);
+  assert.equal(ok.currency, 'EUR');
+});
+
+test('normalizePrice accepts a breakdown object and computes/keeps the total', () => {
+  const summed = normalizePrice({ base: 100, taxes: 20, fees: 5, currency: 'usd', estimated: false });
+  assert.equal(summed.total, 125); // base + taxes + fees
+  assert.equal(summed.currency, 'USD');
+
+  const explicit = normalizePrice({ amount: 200, total: 215, estimated: true });
+  assert.equal(explicit.total, 215);
+  assert.equal(explicit.amount, 200);
+  assert.equal(explicit.estimated, true);
 });
 
 test('normalizeOffer fills defaults and an id when none is given', () => {
@@ -169,6 +188,22 @@ test('rankOffers handles null prices and score ties', () => {
     { id: 'b', price: { amount: 10 }, score: 9 }
   ], { sort: 'score' });
   assert.equal(byScore[0].id, 'b');
+});
+
+test('rankOffers breaks price ties by score, then prefers live data', () => {
+  // Equal comparable total, different score -> higher score wins.
+  const byScore = rankOffers([
+    { id: 'lo', price: { total: 100 }, score: 1, freshness: 'live' },
+    { id: 'hi', price: { total: 100 }, score: 9, freshness: 'cached' }
+  ]);
+  assert.equal(byScore[0].id, 'hi');
+
+  // Equal total and score, different freshness -> live wins.
+  const byFresh = rankOffers([
+    { id: 'cached', price: { total: 100 }, score: 5, freshness: 'cached' },
+    { id: 'live', price: { total: 100 }, score: 5, freshness: 'live' }
+  ]);
+  assert.equal(byFresh[0].id, 'live');
 });
 
 // ---- BaseProvider defaults -------------------------------------------------

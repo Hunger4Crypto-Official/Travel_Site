@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "id": "1",
+      "numberOfBookableSeats": 7,
+      "itineraries": [
+        {
+          "segments": [
+            { "departure": { "iataCode": "LAX", "at": "2026-07-01T07:00:00" }, "arrival": { "iataCode": "JFK", "at": "2026-07-01T15:30:00" }, "carrierCode": "B6", "number": "24" }
+          ]
+        }
+      ],
+      "price": { "currency": "USD", "total": "312.40", "base": "260.00", "grandTotal": "312.40", "fees": [{ "amount": "0.00", "type": "SUPPLIER" }] }
+    }
+  ]
+}

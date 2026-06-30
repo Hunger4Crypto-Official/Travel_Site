@@ -1,0 +1,11 @@
+{
+  "data": [
+    {
+      "hotel": { "hotelId": "TESTHOTELA", "name": "Grand Test", "cityCode": "PAR", "latitude": 48.86, "longitude": 2.35 },
+      "offers": [
+        { "id": "OFR1", "checkInDate": "2026-07-01", "checkOutDate": "2026-07-03", "room": { "description": { "text": "Deluxe King" } }, "price": { "currency": "EUR", "base": "210.00", "total": "250.00" } },
+        { "id": "OFR2", "checkInDate": "2026-07-01", "checkOutDate": "2026-07-03", "price": { "currency": "EUR", "total": "180.00" } }
+      ]
+    }
+  ]
+}

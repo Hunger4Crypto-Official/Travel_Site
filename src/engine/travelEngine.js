@@ -1,4 +1,6 @@
 import { rankOffers } from './ranking.js';
+import { comparableAmount } from './normalizers.js';
+import { dedupeOffers } from './dedupe.js';
 import { stableCacheKey, validateQuery } from './queryValidation.js';
 import { ProviderCircuitBreaker } from './providerCircuitBreaker.js';
 import { MemoryCache } from '../utils/cache.js';
@@ -94,12 +96,17 @@ export class TravelEngine {
     const allResults = [...providerResults, ...skippedProviders];
     const rawOffers = allResults.flatMap((result) => result.offers);
     const normalizedOffers = await this.applyCurrency(rawOffers);
-    const ranked = rankOffers(normalizedOffers, { sort: query.sort });
+
+    // Collapse the same product from multiple providers, then rank the survivors.
+    const deduped = dedupeOffers(normalizedOffers);
+    const ranked = rankOffers(deduped, { sort: query.sort });
 
     const limit = clampLimit(query.limit);
     const offers = limit ? ranked.slice(0, limit) : ranked;
 
-    const summary = summarizePrices(ranked);
+    // Summaries are computed over every offer (pre-dedup) so each provider's best
+    // price is represented even when it was merged into another offer's alternatives.
+    const summary = summarizePrices(normalizedOffers);
 
     return {
       query,
@@ -108,11 +115,12 @@ export class TravelEngine {
       total: ranked.length,
       currency: summary.currency,
       priceComparable: summary.priceComparable,
+      freshness: summary.freshness,
       cheapest: summary.cheapest,
       bestByProvider: summary.bestByProvider,
       offers,
       providers: allResults.map(({ provider, error }) => ({ provider, status: error ? 'error' : 'success', error })),
-      ...(message(ranked.length, summary.priceComparable))
+      ...(message(ranked.length, summary))
     };
   }
 
@@ -131,11 +139,20 @@ export class TravelEngine {
     return offers.map((offer) => {
       const original = offer.price;
       if (!original || original.currency === this.baseCurrency || original.amount === null) return offer;
-      const converted = this.currencyConverter.convert(original.amount, original.currency, this.baseCurrency);
-      if (converted === null) return offer;
+      const convert = (v) => (v === null || v === undefined ? v : this.currencyConverter.convert(v, original.currency, this.baseCurrency));
+      const amount = convert(original.amount);
+      if (amount === null) return offer; // can't convert -> keep original untouched
+      const total = original.total !== undefined && original.total !== null ? convert(original.total) : amount;
       return {
         ...offer,
-        price: { amount: roundMoney(converted), currency: this.baseCurrency, original }
+        price: {
+          amount: roundMoney(amount),
+          total: roundMoney(total ?? amount),
+          currency: this.baseCurrency,
+          base: original.base !== null && original.base !== undefined ? roundMoney(convert(original.base)) : null,
+          estimated: Boolean(original.estimated),
+          original
+        }
       };
     });
   }
@@ -186,12 +203,15 @@ function clampLimit(value) {
 }
 
 // Builds the cheapest-price summary independently of the display sort, and
-// reports whether the offers can be compared on price directly (single currency).
-function summarizePrices(ranked) {
-  const priced = ranked.filter((offer) => offer.price && offer.price.amount !== null && offer.price.amount !== undefined);
+// reports whether the lowest price is genuinely trustworthy: a single currency
+// AND every priced offer exposes a verified all-in total (not an estimate).
+function summarizePrices(offers) {
+  const priced = offers.filter((offer) => comparableAmount(offer) !== null);
   const currencies = new Set(priced.map((offer) => offer.price.currency));
-  const priceComparable = currencies.size <= 1;
-  const byPrice = [...priced].sort((a, b) => a.price.amount - b.price.amount);
+  const sameCurrency = currencies.size <= 1;
+  const anyEstimated = priced.some((offer) => offer.price?.estimated === true);
+  const priceComparable = priced.length > 0 && sameCurrency && !anyEstimated;
+  const byPrice = [...priced].sort((a, b) => comparableAmount(a) - comparableAmount(b));
 
   const bestByProvider = [];
   const seen = new Set();
@@ -208,15 +228,29 @@ function summarizePrices(ranked) {
   return {
     currency: currencies.size === 1 ? [...currencies][0] : null,
     priceComparable,
+    sameCurrency,
+    anyEstimated,
+    freshness: summarizeFreshness(offers),
     cheapest,
     bestByProvider
   };
 }
 
-function message(rankedCount, priceComparable) {
+function summarizeFreshness(offers) {
+  if (offers.length === 0) return null;
+  const live = offers.every((offer) => offer.freshness === 'live');
+  if (live) return 'live';
+  const cached = offers.every((offer) => offer.freshness !== 'live');
+  return cached ? 'cached' : 'mixed';
+}
+
+function message(rankedCount, summary) {
   if (rankedCount === 0) return { message: 'No offers matched your query.' };
-  if (!priceComparable) {
+  if (!summary.sameCurrency) {
     return { message: 'Offers span multiple currencies; enable currency conversion (CURRENCY_CONVERSION_ENABLED) for a directly comparable lowest price.' };
+  }
+  if (summary.anyEstimated) {
+    return { message: 'Some prices are estimates or cached fares without full taxes/fees; the lowest price may not be a final all-in total.' };
   }
   return {};
 }

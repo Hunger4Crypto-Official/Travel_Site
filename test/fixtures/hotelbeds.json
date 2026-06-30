@@ -1,0 +1,17 @@
+{
+  "hotels": {
+    "total": 1,
+    "hotels": [
+      {
+        "code": 12345,
+        "name": "Test Resort & Spa",
+        "categoryName": "4 STARS",
+        "destinationName": "Palma",
+        "zoneName": "Playa de Palma",
+        "currency": "EUR",
+        "minRate": "150.00",
+        "rooms": [{ "code": "DBL.ST" }]
+      }
+    ]
+  }
+}

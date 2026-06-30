@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { AmadeusProvider } from '../src/providers/amadeusProvider.js';
+import { AmadeusHotelsProvider } from '../src/providers/amadeusHotelsProvider.js';
 import { HotelbedsProvider } from '../src/providers/hotelbedsProvider.js';
 import { AeroDataBoxProvider } from '../src/providers/aeroDataBoxProvider.js';
 import { TravelpayoutsProvider } from '../src/providers/travelpayoutsProvider.js';
@@ -154,6 +155,69 @@ test('HotelbedsProvider returns [] without a valid city code and is unconfigured
 
   const unconfigured = new HotelbedsProvider({});
   assert.equal(unconfigured.ready, false);
+});
+
+// ---- Amadeus Hotels --------------------------------------------------------
+
+test('AmadeusHotelsProvider resolves city, lists hotels, and maps the cheapest all-in offer', async () => {
+  const fetchImpl = stubFetch((url) => {
+    if (url.includes('/oauth2/token')) return jsonResponse({ access_token: 't', expires_in: 1799 });
+    if (url.includes('/by-city')) return jsonResponse({ data: [{ hotelId: 'HOTELA' }, { hotelId: 'HOTELB' }] });
+    return jsonResponse({ data: [{
+      hotel: { hotelId: 'HOTELA', name: 'Grand Test', cityCode: 'PAR', latitude: 48.8, longitude: 2.3 },
+      offers: [
+        { price: { total: '250.00', base: '210.00', currency: 'EUR' }, checkInDate: '2026-07-01', room: { description: { text: 'Suite' } } },
+        { price: { total: '180.00', currency: 'EUR' } }
+      ]
+    }] });
+  });
+  const provider = new AmadeusHotelsProvider({ clientId: 'a', clientSecret: 'b', fetchImpl });
+
+  const offers = await provider.search('hotels', { cityCode: 'PAR', checkin: '2026-07-01', checkout: '2026-07-03', adults: '2', rooms: '1' });
+
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0].price.total, 180); // cheapest of the two offers
+  assert.equal(offers[0].price.estimated, false); // Amadeus totals are all-in
+  assert.equal(offers[0].title, 'Grand Test');
+  assert.match(fetchImpl.calls[1].url, /by-city\?cityCode=PAR/);
+  assert.match(fetchImpl.calls[2].url, /hotelIds=HOTELA(%2C|,)HOTELB/);
+  assert.match(fetchImpl.calls[2].url, /checkInDate=2026-07-01/);
+});
+
+test('AmadeusHotelsProvider caches the OAuth token across searches and reports status', async () => {
+  const fetchImpl = stubFetch((url) => {
+    if (url.includes('/oauth2/token')) return jsonResponse({ access_token: 't', expires_in: 1799 });
+    if (url.includes('/by-city')) return jsonResponse({ data: [{ hotelId: 'H' }] });
+    return jsonResponse({ data: [{ hotel: { hotelId: 'H', name: 'X' }, offers: [{ price: { total: '100.00', currency: 'USD' } }] }] });
+  });
+  let clock = 1000;
+  const provider = new AmadeusHotelsProvider({ clientId: 'a', clientSecret: 'b', fetchImpl, now: () => clock });
+
+  await provider.search('hotels', { cityCode: 'PAR', checkin: '2026-07-01', checkout: '2026-07-03' });
+  clock += 1000; // still within token lifetime
+  await provider.search('hotels', { cityCode: 'PAR', checkin: '2026-07-01', checkout: '2026-07-03' });
+
+  assert.equal(fetchImpl.calls.filter((c) => c.url.includes('/oauth2/token')).length, 1);
+  assert.equal(provider.status().configured, true);
+});
+
+test('AmadeusHotelsProvider throws when no access token is returned', async () => {
+  const provider = new AmadeusHotelsProvider({ clientId: 'a', clientSecret: 'b', fetchImpl: stubFetch(jsonResponse({})) });
+  await assert.rejects(() => provider.search('hotels', { cityCode: 'PAR' }), /access token/);
+});
+
+test('AmadeusHotelsProvider returns [] when city is unknown or no hotels found', async () => {
+  const noHotels = stubFetch((url) => url.includes('/oauth2/token')
+    ? jsonResponse({ access_token: 't', expires_in: 1799 })
+    : jsonResponse({ data: [] }));
+  const provider = new AmadeusHotelsProvider({ clientId: 'a', clientSecret: 'b', fetchImpl: noHotels });
+  assert.deepEqual(await provider.search('hotels', { cityCode: 'PAR' }), []);
+
+  const unconfigured = new AmadeusHotelsProvider({});
+  assert.equal(unconfigured.ready, false);
+  assert.equal(unconfigured.supports('hotels'), true);
+  assert.equal(unconfigured.supports('flights'), false);
+  assert.deepEqual(await new AmadeusHotelsProvider({ clientId: 'a', clientSecret: 'b' }).search('flights', {}), []);
 });
 
 // ---- AeroDataBox -----------------------------------------------------------

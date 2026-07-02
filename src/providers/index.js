@@ -5,6 +5,8 @@ import { AdsbProvider } from './adsbProvider.js';
 import { HotelbedsProvider } from './hotelbedsProvider.js';
 import { AeroDataBoxProvider } from './aeroDataBoxProvider.js';
 import { TravelpayoutsProvider } from './travelpayoutsProvider.js';
+import { SkyScrapperProvider } from './skyScrapperProvider.js';
+import { BookingComProvider } from './bookingComProvider.js';
 
 // Builds the active provider set from configuration. No-key real providers and
 // the demo provider are on by default; key-based providers are registered only
@@ -16,8 +18,8 @@ export function createProviders(config = {}) {
 
   // Verticals already covered by a real provider — the demo must not fabricate
   // prices for these, or a placeholder offer could win a real lowest-price race.
-  const realFlights = Boolean(config.travelpayoutsToken);
-  const realHotels = Boolean(config.hotelbedsApiKey && config.hotelbedsSecret);
+  const realFlights = Boolean(config.travelpayoutsToken || config.skyScrapperKey);
+  const realHotels = Boolean((config.hotelbedsApiKey && config.hotelbedsSecret) || config.bookingComKey);
   const demoExclude = [];
   if (realFlights) demoExclude.push('flights');
   if (realHotels) demoExclude.push('hotels');
@@ -62,6 +64,24 @@ export function createProviders(config = {}) {
     providers.push(new TravelpayoutsProvider({
       token: config.travelpayoutsToken,
       marker: config.travelpayoutsMarker,
+      affiliateId,
+      timeoutMs
+    }));
+  }
+
+  if (config.skyScrapperKey) {
+    providers.push(new SkyScrapperProvider({
+      apiKey: config.skyScrapperKey,
+      currency: config.baseCurrency,
+      affiliateId,
+      timeoutMs
+    }));
+  }
+
+  if (config.bookingComKey) {
+    providers.push(new BookingComProvider({
+      apiKey: config.bookingComKey,
+      currency: config.baseCurrency,
       affiliateId,
       timeoutMs
     }));

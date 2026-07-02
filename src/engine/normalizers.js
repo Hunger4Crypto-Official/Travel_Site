@@ -13,7 +13,8 @@ export function normalizePrice(value, currency = 'USD') {
 
 function normalizePriceObject(value, fallbackCurrency) {
   const currency = (value.currency || fallbackCurrency || 'USD').toUpperCase();
-  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  // null/undefined mean "unknown", never 0 (Number(null) is 0, so guard first).
+  const num = (v) => (v === null || v === undefined ? null : (Number.isFinite(Number(v)) ? Number(v) : null));
   const base = num(value.base);
   const taxes = num(value.taxes);
   const fees = num(value.fees);

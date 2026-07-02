@@ -1,0 +1,35 @@
+{
+  "status": true,
+  "message": "Success",
+  "timestamp": 1751400000000,
+  "data": [
+    {
+      "dest_id": "20079110",
+      "search_type": "city",
+      "dest_type": "city",
+      "city_name": "Las Vegas",
+      "label": "Las Vegas, Nevada, United States",
+      "region": "Nevada",
+      "country": "United States",
+      "name": "Las Vegas",
+      "latitude": 36.114647,
+      "longitude": -115.172813,
+      "nr_hotels": 372,
+      "type": "ci"
+    },
+    {
+      "dest_id": "900040025",
+      "search_type": "landmark",
+      "dest_type": "landmark",
+      "city_name": "Las Vegas",
+      "label": "Las Vegas Strip, Las Vegas, Nevada, United States",
+      "region": "Nevada",
+      "country": "United States",
+      "name": "Las Vegas Strip",
+      "latitude": 36.11467,
+      "longitude": -115.172815,
+      "nr_hotels": 148,
+      "type": "la"
+    }
+  ]
+}

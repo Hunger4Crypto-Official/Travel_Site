@@ -44,7 +44,11 @@ export function loadConfig(env = process.env) {
     hotelbedsApiKey: env.HOTELBEDS_API_KEY || null,
     hotelbedsSecret: env.HOTELBEDS_SECRET || null,
     hotelbedsEnv: env.HOTELBEDS_ENV === 'production' ? 'production' : 'test',
-    aeroDataBoxKey: env.AERODATABOX_RAPIDAPI_KEY || null,
+    // RAPIDAPI_KEY is a shared fallback: one RapidAPI key works for every
+    // RapidAPI-hosted API the account is subscribed to.
+    aeroDataBoxKey: env.AERODATABOX_RAPIDAPI_KEY || env.RAPIDAPI_KEY || null,
+    skyScrapperKey: env.SKYSCRAPPER_RAPIDAPI_KEY || env.RAPIDAPI_KEY || null,
+    bookingComKey: env.BOOKINGCOM_RAPIDAPI_KEY || env.RAPIDAPI_KEY || null,
     travelpayoutsToken: env.TRAVELPAYOUTS_TOKEN || null,
     travelpayoutsMarker: env.TRAVELPAYOUTS_MARKER || null,
 

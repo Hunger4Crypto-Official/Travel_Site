@@ -1,7 +1,8 @@
 # Enterprise readiness guide
 
 THE Travel Club ships with real no-key providers (airport reference data, OpenSky/ADS-B tracking),
-key-gated real providers (Hotelbeds, AeroDataBox, Travelpayouts), and the
+key-gated real providers (Sky-Scrapper flights, Booking.com + Hotelbeds hotels, AeroDataBox,
+Travelpayouts), and the
 controls expected before production traffic: per-client rate limiting, provider circuit breakers and
 timeouts, an audited outbound HTTP chokepoint with response-size caps, all-in price normalization,
 cross-provider de-duplication, and contract tests for every provider mapping.

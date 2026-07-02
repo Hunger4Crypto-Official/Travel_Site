@@ -1,0 +1,107 @@
+{
+  "status": true,
+  "timestamp": 1751400000000,
+  "data": {
+    "context": {
+      "status": "complete",
+      "totalResults": 2
+    },
+    "itineraries": [
+      {
+        "id": "13542-2607010800--32171-1-12712-2607011640",
+        "price": {
+          "raw": 289.98,
+          "formatted": "$290"
+        },
+        "legs": [
+          {
+            "id": "13542-2607010800--32171-1-12712-2607011640",
+            "origin": { "id": "LAX", "displayCode": "LAX", "name": "Los Angeles International" },
+            "destination": { "id": "JFK", "displayCode": "JFK", "name": "New York John F. Kennedy" },
+            "durationInMinutes": 520,
+            "stopCount": 1,
+            "departure": "2026-07-01T08:00:00",
+            "arrival": "2026-07-01T16:40:00",
+            "carriers": {
+              "marketing": [
+                { "id": -32171, "alternateId": "B6", "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/B6.png", "name": "JetBlue" }
+              ]
+            },
+            "segments": [
+              {
+                "id": "13542-12240-2607010800-2607011005--32171",
+                "origin": { "flightPlaceId": "LAX", "displayCode": "LAX", "name": "Los Angeles International", "type": "Airport" },
+                "destination": { "flightPlaceId": "SLC", "displayCode": "SLC", "name": "Salt Lake City", "type": "Airport" },
+                "departure": "2026-07-01T08:00:00",
+                "arrival": "2026-07-01T10:05:00",
+                "durationInMinutes": 125,
+                "flightNumber": "424",
+                "marketingCarrier": { "id": -32171, "name": "JetBlue", "alternateId": "B6", "allianceId": 0 },
+                "operatingCarrier": { "id": -32171, "name": "JetBlue", "alternateId": "B6", "allianceId": 0 }
+              },
+              {
+                "id": "12240-12712-2607011130-2607011640--32171",
+                "origin": { "flightPlaceId": "SLC", "displayCode": "SLC", "name": "Salt Lake City", "type": "Airport" },
+                "destination": { "flightPlaceId": "JFK", "displayCode": "JFK", "name": "New York John F. Kennedy", "type": "Airport" },
+                "departure": "2026-07-01T11:30:00",
+                "arrival": "2026-07-01T16:40:00",
+                "durationInMinutes": 250,
+                "flightNumber": "1024",
+                "marketingCarrier": { "id": -32171, "name": "JetBlue", "alternateId": "B6", "allianceId": 0 },
+                "operatingCarrier": { "id": -32171, "name": "JetBlue", "alternateId": "B6", "allianceId": 0 }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "farePolicy": { "isChangeAllowed": false, "isPartiallyChangeable": false, "isCancellationAllowed": false, "isPartiallyRefundable": false },
+        "tags": ["cheapest"],
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.81
+      },
+      {
+        "id": "13542-2607010915--32385-0-12712-2607011735",
+        "price": {
+          "raw": 412.4,
+          "formatted": "$413"
+        },
+        "legs": [
+          {
+            "id": "13542-2607010915--32385-0-12712-2607011735",
+            "origin": { "id": "LAX", "displayCode": "LAX", "name": "Los Angeles International" },
+            "destination": { "id": "JFK", "displayCode": "JFK", "name": "New York John F. Kennedy" },
+            "durationInMinutes": 320,
+            "stopCount": 0,
+            "departure": "2026-07-01T09:15:00",
+            "arrival": "2026-07-01T17:35:00",
+            "carriers": {
+              "marketing": [
+                { "id": -32385, "alternateId": "AA", "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/AA.png", "name": "American Airlines" }
+              ]
+            },
+            "segments": [
+              {
+                "id": "13542-12712-2607010915-2607011735--32385",
+                "origin": { "flightPlaceId": "LAX", "displayCode": "LAX", "name": "Los Angeles International", "type": "Airport" },
+                "destination": { "flightPlaceId": "JFK", "displayCode": "JFK", "name": "New York John F. Kennedy", "type": "Airport" },
+                "departure": "2026-07-01T09:15:00",
+                "arrival": "2026-07-01T17:35:00",
+                "durationInMinutes": 320,
+                "flightNumber": "100",
+                "marketingCarrier": { "id": -32385, "name": "American Airlines", "alternateId": "AA", "allianceId": -31999 },
+                "operatingCarrier": { "id": -32385, "name": "American Airlines", "alternateId": "AA", "allianceId": -31999 }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "farePolicy": { "isChangeAllowed": false, "isPartiallyChangeable": false, "isCancellationAllowed": false, "isPartiallyRefundable": false },
+        "tags": ["shortest"],
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.94
+      }
+    ]
+  }
+}

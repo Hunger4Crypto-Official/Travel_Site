@@ -6,9 +6,10 @@
 //   npm run smoke:live
 //
 // Requires outbound egress to each provider host and any needed credentials
-// (AMADEUS_CLIENT_ID/SECRET, HOTELBEDS_*, AERODATABOX_RAPIDAPI_KEY,
-// TRAVELPAYOUTS_TOKEN). No-key providers (OpenSky, ADS-B, airport dataset) run
-// without credentials but still need egress.
+// (HOTELBEDS_*, TRAVELPAYOUTS_TOKEN, and RAPIDAPI_KEY — or the per-API
+// *_RAPIDAPI_KEY overrides — for Sky-Scrapper, Booking.com and AeroDataBox).
+// No-key providers (OpenSky, ADS-B, airport dataset) run without credentials
+// but still need egress.
 import { loadDotEnv } from '../src/config/dotenv.js';
 import { loadConfig } from '../src/config/env.js';
 import { createProviders } from '../src/providers/index.js';

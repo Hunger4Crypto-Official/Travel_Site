@@ -1,0 +1,68 @@
+{
+  "status": true,
+  "message": "Success",
+  "timestamp": 1751400000000,
+  "data": {
+    "hotels": [
+      {
+        "hotel_id": 191605,
+        "accessibilityLabel": "Bellagio.\n5 out of 5 stars.\n8.7 Fabulous 41219 reviews.\nHotel room : 1 bed.\n1112 USD.\nIncludes taxes and charges.",
+        "property": {
+          "id": 191605,
+          "name": "Bellagio",
+          "reviewScore": 8.7,
+          "reviewCount": 41219,
+          "reviewScoreWord": "Fabulous",
+          "propertyClass": 5,
+          "accuratePropertyClass": 5,
+          "latitude": 36.1129601,
+          "longitude": -115.176352,
+          "wishlistName": "Las Vegas",
+          "currency": "USD",
+          "countryCode": "us",
+          "checkinDate": "2026-07-01",
+          "checkoutDate": "2026-07-05",
+          "priceBreakdown": {
+            "grossPrice": { "currency": "USD", "value": 979.76 },
+            "excludedPrice": { "currency": "USD", "value": 132.4 },
+            "benefitBadges": []
+          },
+          "photoUrls": ["https://cf.bstatic.com/xdata/images/hotel/square60/12345.jpg"],
+          "qualityClass": 0,
+          "rankingPosition": 1,
+          "position": 0
+        }
+      },
+      {
+        "hotel_id": 220129,
+        "accessibilityLabel": "The LINQ Hotel + Experience.\n4 out of 5 stars.\n7.8 Good 30111 reviews.\nHotel room : 1 bed.\n412 USD.\nIncludes taxes and charges.",
+        "property": {
+          "id": 220129,
+          "name": "The LINQ Hotel + Experience",
+          "reviewScore": 7.8,
+          "reviewCount": 30111,
+          "reviewScoreWord": "Good",
+          "propertyClass": 4,
+          "accuratePropertyClass": 4,
+          "latitude": 36.1175934,
+          "longitude": -115.1710925,
+          "wishlistName": "Las Vegas",
+          "currency": "USD",
+          "countryCode": "us",
+          "checkinDate": "2026-07-01",
+          "checkoutDate": "2026-07-05",
+          "priceBreakdown": {
+            "grossPrice": { "currency": "USD", "value": 412.05 },
+            "benefitBadges": []
+          },
+          "photoUrls": ["https://cf.bstatic.com/xdata/images/hotel/square60/67890.jpg"],
+          "qualityClass": 0,
+          "rankingPosition": 2,
+          "position": 1
+        }
+      }
+    ],
+    "meta": [{ "title": "372 properties" }],
+    "appear": []
+  }
+}

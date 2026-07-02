@@ -1,0 +1,46 @@
+{
+  "status": true,
+  "timestamp": 1751400000000,
+  "data": [
+    {
+      "skyId": "LAX",
+      "entityId": "27544850",
+      "presentation": {
+        "title": "Los Angeles International",
+        "suggestionTitle": "Los Angeles International (LAX)",
+        "subtitle": "United States"
+      },
+      "navigation": {
+        "entityId": "27544850",
+        "entityType": "AIRPORT",
+        "localizedName": "Los Angeles International",
+        "relevantFlightParams": {
+          "skyId": "LAX",
+          "entityId": "27544850",
+          "flightPlaceType": "AIRPORT",
+          "localizedName": "Los Angeles International"
+        }
+      }
+    },
+    {
+      "skyId": "LAXA",
+      "entityId": "27536211",
+      "presentation": {
+        "title": "Los Angeles",
+        "suggestionTitle": "Los Angeles (Any)",
+        "subtitle": "United States"
+      },
+      "navigation": {
+        "entityId": "27536211",
+        "entityType": "CITY",
+        "localizedName": "Los Angeles",
+        "relevantFlightParams": {
+          "skyId": "LAXA",
+          "entityId": "27536211",
+          "flightPlaceType": "CITY",
+          "localizedName": "Los Angeles"
+        }
+      }
+    }
+  ]
+}

@@ -158,6 +158,11 @@ test('normalizePrice accepts a breakdown object and computes/keeps the total', (
   assert.equal(explicit.total, 215);
   assert.equal(explicit.amount, 200);
   assert.equal(explicit.estimated, true);
+
+  // Explicitly-null components stay unknown instead of coercing to 0.
+  const withNullFees = normalizePrice({ amount: 100, total: 100, fees: null });
+  assert.equal(withNullFees.fees, null);
+  assert.equal(withNullFees.total, 100);
 });
 
 test('normalizeOffer fills defaults and an id when none is given', () => {

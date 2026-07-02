@@ -125,12 +125,16 @@ statusCode, details }, "meta": { requestId, version } }`.
 docs/
   enterprise-readiness.md
   openapi.yaml
+scripts/
+  liveSmoke.js              # prove provider mappings against the real APIs
 src/
   config/
     brand.js
-    env.js
+    dotenv.js               # zero-dependency .env loader
+    env.js                  # single source of truth for configuration
   engine/
-    normalizers.js
+    dedupe.js               # cross-provider offer de-duplication
+    normalizers.js          # all-in price model + offer shape
     providerCircuitBreaker.js
     queryValidation.js
     ranking.js
@@ -139,20 +143,32 @@ src/
     logger.js
     metrics.js
   providers/
+    adsbProvider.js         # adsb.lol / airplanes.live (no key)
+    aeroDataBoxProvider.js  # RapidAPI airport enrichment
+    airportInfoProvider.js  # bundled IATA/ICAO dataset (offline)
+    amadeusAuth.js          # shared OAuth2 token cache
+    amadeusHotelsProvider.js
+    amadeusProvider.js      # flights
     baseProvider.js
-    index.js
-    mockProvider.js
+    data/airports.js
+    hotelbedsProvider.js
+    index.js                # registry; key-gated registration
+    mockProvider.js         # demo data, auto-excluded per real vertical
+    openSkyProvider.js
+    travelpayoutsProvider.js
   routes/
     router.js
   utils/
     cache.js
+    currency.js             # Frankfurter-backed conversion
     formatter.js
+    geo.js                  # city name -> location code
     http.js
-    rateLimit.js
+    httpClient.js           # audited outbound HTTP chokepoint
+    rateLimit.js            # per-client token buckets
 server.js
-test/
-  engine.test.js
-  router.test.js
+test/                       # unit, contract (fixtures/), and router tests
+.env.example                # every supported variable, documented
 ```
 
 ## Installation
@@ -166,10 +182,14 @@ This project currently uses only Node.js built-in modules, so `npm install` does
 ## Run locally
 
 ```bash
+cp .env.example .env   # optional: fill in any provider keys you have
 npm start
 ```
 
-The server defaults to `http://localhost:3000`.
+The server defaults to `http://localhost:3000`. A `.env` file next to `server.js` is loaded
+automatically (real environment variables always take precedence); with no keys set, the engine
+runs on the demo + no-key providers. Add credentials to `.env` and restart — the matching real
+providers register themselves and the demo stops serving those verticals.
 
 ## Test
 

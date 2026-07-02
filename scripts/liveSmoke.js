@@ -9,8 +9,11 @@
 // (AMADEUS_CLIENT_ID/SECRET, HOTELBEDS_*, AERODATABOX_RAPIDAPI_KEY,
 // TRAVELPAYOUTS_TOKEN). No-key providers (OpenSky, ADS-B, airport dataset) run
 // without credentials but still need egress.
+import { loadDotEnv } from '../src/config/dotenv.js';
 import { loadConfig } from '../src/config/env.js';
 import { createProviders } from '../src/providers/index.js';
+
+loadDotEnv({ path: new URL('../.env', import.meta.url).pathname });
 
 function futureDate(daysAhead) {
   const d = new Date(Date.now() + daysAhead * 86400000);

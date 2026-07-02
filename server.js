@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { brand } from './src/config/brand.js';
+import { loadDotEnv } from './src/config/dotenv.js';
 import { loadConfig } from './src/config/env.js';
 import { TravelEngine } from './src/engine/travelEngine.js';
 import { createProviders } from './src/providers/index.js';
@@ -12,6 +13,7 @@ import { MetricsRegistry } from './src/observability/metrics.js';
 import { ProviderCircuitBreaker } from './src/engine/providerCircuitBreaker.js';
 import { CurrencyConverter } from './src/utils/currency.js';
 
+loadDotEnv({ path: new URL('./.env', import.meta.url).pathname });
 const config = loadConfig();
 const logger = createLogger({ level: config.requestLogLevel });
 const currencyConverter = config.currencyConversionEnabled

@@ -1,0 +1,9 @@
+# Secrets — never commit real credentials
+.env
+.env.local
+.env.*.local
+
+# Dependencies & artifacts
+node_modules/
+coverage/
+*.log

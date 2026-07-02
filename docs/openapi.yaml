@@ -97,6 +97,10 @@ paths:
         - in: query
           name: checkout
           schema: { type: string, format: date }
+        - in: query
+          name: limit
+          description: Maximum number of offers to return (1-50).
+          schema: { type: integer, minimum: 1, maximum: 50 }
       responses:
         '200': { description: Ranked offers. }
         '400': { description: Invalid query. }
@@ -108,6 +112,10 @@ paths:
           name: city
           required: true
           schema: { type: string, minLength: 1, maxLength: 120 }
+        - in: query
+          name: limit
+          description: Maximum number of offers to return (1-50).
+          schema: { type: integer, minimum: 1, maximum: 50 }
       responses:
         '200': { description: Ranked offers. }
         '400': { description: Invalid query. }

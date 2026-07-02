@@ -1,15 +1,23 @@
 # Enterprise readiness guide
 
-THE Travel Club is still a provider-integration scaffold, but the service now includes the controls expected before real travel supplier credentials are connected.
+THE Travel Club ships with real no-key providers (airport reference data, OpenSky/ADS-B tracking),
+key-gated real providers (Amadeus flights + hotels, Hotelbeds, AeroDataBox, Travelpayouts), and the
+controls expected before production traffic: per-client rate limiting, provider circuit breakers and
+timeouts, an audited outbound HTTP chokepoint with response-size caps, all-in price normalization,
+cross-provider de-duplication, and contract tests for every provider mapping.
 
 ## Security controls
 
 - Keep `REQUIRE_API_KEY=true` in shared, staging, and production environments.
-- Configure `API_KEYS` through a secrets manager, not source control.
+- Configure `API_KEYS` through a secrets manager, not source control. `.env` is git-ignored and
+  loaded automatically for local development only; real environment variables always win.
 - Configure `ALLOWED_ORIGINS` to trusted web properties; avoid `*` outside isolated development.
 - `/health` is intentionally public and only reports liveness.
-- `/ready` and `/metrics` are diagnostic endpoints and should be protected by API keys or infrastructure policy.
+- `/ready` and `/metrics` are diagnostic endpoints and are automatically key-protected whenever
+  `API_KEYS` is configured.
 - Logs redact common secret-bearing fields such as keys, tokens, passwords, and authorization headers.
+- Consumer API keys are compared with a timing-safe equality check.
+- Rate limiting is per client (API-key principal, else IP) with LRU-bounded bucket tracking.
 
 ## Operations
 
@@ -22,12 +30,14 @@ THE Travel Club is still a provider-integration scaffold, but the service now in
 ## Provider onboarding checklist
 
 1. Confirm provider terms for caching, display order, affiliate attribution, and price freshness.
-2. Keep provider keys in environment/secret management only.
-3. Add a provider module extending `BaseProvider`.
-4. Implement request cancellation with `AbortSignal` when the provider performs outbound HTTP calls.
-5. Normalize final comparable prices, taxes, fees, currency, refundability, and cancellation rules.
-6. Add unit tests for success, timeout, authentication failure, malformed provider payloads, and rate-limit errors.
-7. Add contract tests against `docs/openapi.yaml` before publishing new response fields.
+2. Keep provider keys in environment/secret management only (locally: `.env`, never committed).
+3. Add a provider module extending `BaseProvider`; route all outbound HTTP through
+   `src/utils/httpClient.js` (timeouts, size caps, and error shaping come for free).
+4. Emit the all-in price shape `{ amount, total, base, currency, estimated }` and an honest
+   `freshness` (`live` or `cached`) so comparability reporting stays truthful.
+5. Add unit tests for success, timeout, authentication failure, malformed provider payloads, and
+   rate-limit errors, plus a recorded fixture in `test/fixtures/` with a contract test.
+6. Prove the mapping against the live API with `npm run smoke:live` before enabling in production.
 
 ## Ranking governance
 

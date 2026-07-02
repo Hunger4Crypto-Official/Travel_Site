@@ -2,8 +2,6 @@ import { MockProvider } from './mockProvider.js';
 import { AirportInfoProvider } from './airportInfoProvider.js';
 import { OpenSkyProvider } from './openSkyProvider.js';
 import { AdsbProvider } from './adsbProvider.js';
-import { AmadeusProvider } from './amadeusProvider.js';
-import { AmadeusHotelsProvider } from './amadeusHotelsProvider.js';
 import { HotelbedsProvider } from './hotelbedsProvider.js';
 import { AeroDataBoxProvider } from './aeroDataBoxProvider.js';
 import { TravelpayoutsProvider } from './travelpayoutsProvider.js';
@@ -18,9 +16,8 @@ export function createProviders(config = {}) {
 
   // Verticals already covered by a real provider — the demo must not fabricate
   // prices for these, or a placeholder offer could win a real lowest-price race.
-  const amadeusConfigured = Boolean(config.amadeusClientId && config.amadeusClientSecret);
-  const realFlights = Boolean(amadeusConfigured || config.travelpayoutsToken);
-  const realHotels = Boolean((config.hotelbedsApiKey && config.hotelbedsSecret) || amadeusConfigured);
+  const realFlights = Boolean(config.travelpayoutsToken);
+  const realHotels = Boolean(config.hotelbedsApiKey && config.hotelbedsSecret);
   const demoExclude = [];
   if (realFlights) demoExclude.push('flights');
   if (realHotels) demoExclude.push('hotels');
@@ -45,26 +42,6 @@ export function createProviders(config = {}) {
   if (config.adsbEnabled !== false) {
     providers.push(new AdsbProvider({ name: 'adsb-lol', baseUrl: 'https://api.adsb.lol', affiliateId, timeoutMs }));
     providers.push(new AdsbProvider({ name: 'airplanes-live', baseUrl: 'https://api.airplanes.live', affiliateId, timeoutMs }));
-  }
-
-  if (config.amadeusClientId && config.amadeusClientSecret) {
-    providers.push(new AmadeusProvider({
-      clientId: config.amadeusClientId,
-      clientSecret: config.amadeusClientSecret,
-      environment: config.amadeusEnv,
-      affiliateId,
-      timeoutMs
-    }));
-  }
-
-  if (amadeusConfigured) {
-    providers.push(new AmadeusHotelsProvider({
-      clientId: config.amadeusClientId,
-      clientSecret: config.amadeusClientSecret,
-      environment: config.amadeusEnv,
-      affiliateId,
-      timeoutMs
-    }));
   }
 
   if (config.hotelbedsApiKey && config.hotelbedsSecret) {

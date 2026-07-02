@@ -6,8 +6,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { AmadeusProvider } from '../src/providers/amadeusProvider.js';
-import { AmadeusHotelsProvider } from '../src/providers/amadeusHotelsProvider.js';
 import { HotelbedsProvider } from '../src/providers/hotelbedsProvider.js';
 import { TravelpayoutsProvider } from '../src/providers/travelpayoutsProvider.js';
 import { OpenSkyProvider } from '../src/providers/openSkyProvider.js';
@@ -16,35 +14,6 @@ import { AeroDataBoxProvider } from '../src/providers/aeroDataBoxProvider.js';
 import { jsonResponse, stubFetch } from './helpers/fakeFetch.js';
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
-
-test('contract: Amadeus flights fixture maps to a verified all-in total', async () => {
-  const fetchImpl = stubFetch((url) => url.includes('/oauth2/token')
-    ? jsonResponse({ access_token: 't', expires_in: 1799 })
-    : jsonResponse(fixture('amadeus.flights.json')));
-  const [offer] = await new AmadeusProvider({ clientId: 'a', clientSecret: 'b', fetchImpl })
-    .search('flights', { from: 'LAX', to: 'JFK', date: '2026-07-01' });
-
-  assert.equal(offer.price.total, 312.4);
-  assert.equal(offer.price.base, 260);
-  assert.equal(offer.price.currency, 'USD');
-  assert.equal(offer.price.estimated, false);
-  assert.equal(offer.freshness, 'live');
-});
-
-test('contract: Amadeus hotels fixtures map to the cheapest all-in offer', async () => {
-  const fetchImpl = stubFetch((url) => {
-    if (url.includes('/oauth2/token')) return jsonResponse({ access_token: 't', expires_in: 1799 });
-    if (url.includes('/by-city')) return jsonResponse(fixture('amadeus.hotels.byCity.json'));
-    return jsonResponse(fixture('amadeus.hotels.offers.json'));
-  });
-  const [offer] = await new AmadeusHotelsProvider({ clientId: 'a', clientSecret: 'b', fetchImpl })
-    .search('hotels', { cityCode: 'PAR', checkin: '2026-07-01', checkout: '2026-07-03' });
-
-  assert.equal(offer.price.total, 180);
-  assert.equal(offer.price.estimated, false);
-  assert.equal(offer.price.currency, 'EUR');
-  assert.equal(offer.freshness, 'live');
-});
 
 test('contract: Hotelbeds fixture maps to an estimated net rate', async () => {
   const [offer] = await new HotelbedsProvider({ apiKey: 'k', secret: 's', fetchImpl: stubFetch(jsonResponse(fixture('hotelbeds.json'))), now: () => 0 })

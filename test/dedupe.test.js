@@ -36,10 +36,10 @@ test('dedupeOffers keeps the cheapest and lists the rest as alternatives', () =>
 test('canonicalKey collapses the same hotel and falls back to name without a code', () => {
   const byCode = dedupeOffers([
     offer({ id: 'h1', type: 'hotels', provider: 'hotelbeds', price: { amount: 150, total: 150, currency: 'EUR' }, details: { code: 12345 } }),
-    offer({ id: 'h2', type: 'hotels', provider: 'amadeus-hotels', price: { amount: 140, total: 140, currency: 'EUR' }, details: { code: 12345 } })
+    offer({ id: 'h2', type: 'hotels', provider: 'travelpayouts-hotels', price: { amount: 140, total: 140, currency: 'EUR' }, details: { code: 12345 } })
   ]);
   assert.equal(byCode.length, 1);
-  assert.equal(byCode[0].provider, 'amadeus-hotels'); // cheaper
+  assert.equal(byCode[0].provider, 'travelpayouts-hotels'); // cheaper
   assert.equal(byCode[0].alternatives.length, 1);
 
   assert.equal(

@@ -91,12 +91,10 @@ request returns `429` with a `Retry-After` header; `405` responses include an `A
     "offers": [
       {
         "id": "…",
-        "provider": "amadeus",
+        "provider": "travelpayouts",
         "price": { "amount": 312.4, "total": 312.4, "base": 260, "currency": "USD", "estimated": false },
-        "freshness": "live",
-        "alternatives": [
-          { "provider": "travelpayouts", "price": { "amount": 320, "total": 320, "currency": "USD", "estimated": true } }
-        ]
+        "freshness": "cached",
+        "alternatives": []
       }
     ],
     "providers": [],
@@ -146,9 +144,6 @@ src/
     adsbProvider.js         # adsb.lol / airplanes.live (no key)
     aeroDataBoxProvider.js  # RapidAPI airport enrichment
     airportInfoProvider.js  # bundled IATA/ICAO dataset (offline)
-    amadeusAuth.js          # shared OAuth2 token cache
-    amadeusHotelsProvider.js
-    amadeusProvider.js      # flights
     baseProvider.js
     data/airports.js
     hotelbedsProvider.js
@@ -248,8 +243,6 @@ enforces per-provider timeouts and a response-size ceiling.
 | IATA/ICAO reference | airports | none | Bundled dataset (`src/providers/data/airports.js`), fully offline. |
 | OpenSky Network | tracking | none (optional login) | Live flight positions. `OPENSKY_USERNAME`/`OPENSKY_PASSWORD` raise rate limits. |
 | ADS-B (adsb.lol, airplanes.live) | tracking | none | Community ADS-B fallbacks alongside OpenSky. |
-| Amadeus Self-Service | flights | `AMADEUS_CLIENT_ID`, `AMADEUS_CLIENT_SECRET` | OAuth2 token cached until expiry. Verified all-in totals. `AMADEUS_ENV=test\|production`. |
-| Amadeus Hotels | hotels | `AMADEUS_CLIENT_ID`, `AMADEUS_CLIENT_SECRET` | Hotels-by-city → offers; all-in totals. Resolves a free-text `city` to a code. |
 | Hotelbeds APItude | hotels | `HOTELBEDS_API_KEY`, `HOTELBEDS_SECRET` | SHA256-signed; accepts `cityCode` or a resolvable `city`. `HOTELBEDS_ENV=test\|production`. |
 | AeroDataBox (RapidAPI) | airports | `AERODATABOX_RAPIDAPI_KEY` | Live airport detail enrichment. |
 | Travelpayouts Data API | flights | `TRAVELPAYOUTS_TOKEN` (`TRAVELPAYOUTS_MARKER`) | Cached cheapest fares (7-day cache). |
@@ -259,7 +252,7 @@ enforces per-provider timeouts and a response-size ceiling.
 > contract.
 
 ⚠️ **Network egress:** every external host (`opensky-network.org`, `api.adsb.lol`,
-`api.airplanes.live`, `*.amadeus.com`, `api.test.hotelbeds.com`, `aerodatabox.p.rapidapi.com`,
+`api.airplanes.live`, `api.test.hotelbeds.com`, `aerodatabox.p.rapidapi.com`,
 `api.travelpayouts.com`, `api.frankfurter.app`) must be allowed by the environment's network
 policy. When a host is blocked or a provider fails, the engine isolates it (circuit breaker +
 timeout), reports it as `error`, and still returns offers from the providers that succeeded.

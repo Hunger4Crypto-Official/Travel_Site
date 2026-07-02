@@ -130,22 +130,20 @@ test('createProviders registers only no-key providers by default', () => {
 
 test('createProviders adds key-based providers only when credentials are present', () => {
   const names = createProviders({
-    amadeusClientId: 'a', amadeusClientSecret: 'b',
     hotelbedsApiKey: 'k', hotelbedsSecret: 's',
     aeroDataBoxKey: 'r',
     travelpayoutsToken: 't'
   }).map((p) => p.name);
 
-  assert.ok(names.includes('amadeus'));
   assert.ok(names.includes('hotelbeds'));
   assert.ok(names.includes('aerodatabox'));
   assert.ok(names.includes('travelpayouts'));
 });
 
 test('createProviders keeps demo prices out of verticals a real provider covers', () => {
-  const providers = createProviders({ amadeusClientId: 'a', amadeusClientSecret: 'b', hotelbedsApiKey: 'k', hotelbedsSecret: 's' });
+  const providers = createProviders({ hotelbedsApiKey: 'k', hotelbedsSecret: 's', travelpayoutsToken: 't' });
   const demo = providers.find((p) => p.name === 'the-travel-club-demo');
-  assert.equal(demo.supports('flights'), false); // Amadeus covers flights
+  assert.equal(demo.supports('flights'), false); // Travelpayouts covers flights
   assert.equal(demo.supports('hotels'), false);  // Hotelbeds covers hotels
   assert.equal(demo.supports('cars'), true);     // no real car provider -> demo still serves cars
 });

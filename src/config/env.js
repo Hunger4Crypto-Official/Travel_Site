@@ -41,9 +41,6 @@ export function loadConfig(env = process.env) {
     adsbEnabled: env.ADSB_ENABLED !== 'false',
 
     // Key-based providers (registered only when configured)
-    amadeusClientId: env.AMADEUS_CLIENT_ID || null,
-    amadeusClientSecret: env.AMADEUS_CLIENT_SECRET || null,
-    amadeusEnv: env.AMADEUS_ENV === 'production' ? 'production' : 'test',
     hotelbedsApiKey: env.HOTELBEDS_API_KEY || null,
     hotelbedsSecret: env.HOTELBEDS_SECRET || null,
     hotelbedsEnv: env.HOTELBEDS_ENV === 'production' ? 'production' : 'test',

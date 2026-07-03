@@ -133,3 +133,83 @@ test('TravelpayoutsProvider surfaces upstream success:false as an error', async 
   await assert.rejects(() => provider.search('flights', { from: 'LAX', to: 'JFK' }), /bad token/);
   assert.equal(new TravelpayoutsProvider({}).ready, false);
 });
+
+test('TravelpayoutsProvider requests a round trip and defaults missing from/to', async () => {
+  const fetchImpl = stubFetch(jsonResponse({ success: true, data: [] }));
+  const provider = new TravelpayoutsProvider({ token: 'TP', fetchImpl });
+  const offers = await provider.search('flights', { returnDate: '2026-07-15' });
+  assert.deepEqual(offers, []);
+  const url = fetchImpl.calls[0].url;
+  assert.match(url, /one_way=false/);
+  assert.match(url, /return_at=2026-07-15/);
+  // Missing from/to fall back to empty origin/destination params.
+  assert.match(url, /origin=&/);
+  assert.match(url, /destination=&/);
+});
+
+test('TravelpayoutsProvider treats a non-array data payload as empty', async () => {
+  const fetchImpl = stubFetch(jsonResponse({ success: true }));
+  const provider = new TravelpayoutsProvider({ token: 'TP', fetchImpl });
+  assert.deepEqual(await provider.search('flights', { from: 'LAX', to: 'JFK' }), []);
+});
+
+test('TravelpayoutsProvider defaults currency and nulls missing origin/destination', async () => {
+  const fetchImpl = stubFetch(jsonResponse({ success: true, data: [{ price: 120 }] }));
+  const provider = new TravelpayoutsProvider({ token: 'TP', currency: 'eur', fetchImpl });
+  const offers = await provider.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(offers[0].details.origin, null);
+  assert.equal(offers[0].details.destination, null);
+  assert.equal(offers[0].price.currency, 'EUR');
+});
+
+test('TravelpayoutsProvider prefers a per-entry currency when present', async () => {
+  const fetchImpl = stubFetch(jsonResponse({ success: true, data: [{ origin: 'LAX', destination: 'JFK', price: 88, currency: 'gbp' }] }));
+  const provider = new TravelpayoutsProvider({ token: 'TP', fetchImpl });
+  const offers = await provider.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(offers[0].price.currency, 'GBP');
+});
+
+test('TravelpayoutsProvider falls back to USD when neither entry nor provider currency is set', async () => {
+  const fetchImpl = stubFetch(jsonResponse({ success: true, data: [{ origin: 'LAX', destination: 'JFK', price: 42 }] }));
+  const provider = new TravelpayoutsProvider({ token: 'TP', fetchImpl });
+  provider.currency = ''; // force the final `|| 'USD'` fallback for an entry lacking a currency
+  const offers = await provider.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(offers[0].price.currency, 'USD');
+});
+
+test('AeroDataBoxProvider returns [] when no code is supplied', async () => {
+  const fetchImpl = stubFetch(jsonResponse({}));
+  const provider = new AeroDataBoxProvider({ apiKey: 'R', fetchImpl });
+  assert.deepEqual(await provider.search('airports', {}), []);
+  assert.equal(fetchImpl.calls.length, 0);
+});
+
+test('AeroDataBoxProvider falls back for missing icao and location coordinates', async () => {
+  const fetchImpl = stubFetch(jsonResponse({ iata: 'XYZ', name: 'Tiny Field', location: {} }));
+  const provider = new AeroDataBoxProvider({ apiKey: 'R', fetchImpl });
+  const offers = await provider.search('airports', { code: 'XYZ' });
+  assert.equal(offers[0].details.icao, null);
+  assert.equal(offers[0].title, 'Tiny Field (XYZ/?)');
+  assert.deepEqual(offers[0].details.location, { lat: null, lon: null });
+});
+
+test('HotelbedsProvider is unconfigured when the secret is missing', () => {
+  const provider = new HotelbedsProvider({ apiKey: 'k' });
+  assert.equal(provider.ready, false);
+  assert.equal(provider.status().configured, false);
+});
+
+test('HotelbedsProvider treats a missing hotels array as empty', async () => {
+  const fetchImpl = stubFetch(jsonResponse({}));
+  const provider = new HotelbedsProvider({ apiKey: 'K', secret: 'S', fetchImpl, now: () => 0 });
+  assert.deepEqual(await provider.search('hotels', { cityCode: 'PMI', checkin: '2027-01-01', checkout: '2027-01-05' }), []);
+});
+
+test('HotelbedsProvider nulls a missing hotel code and uses the default clock', async () => {
+  const fetchImpl = stubFetch(jsonResponse({ hotels: { hotels: [{ minRate: '99' }] } }));
+  const provider = new HotelbedsProvider({ apiKey: 'K', secret: 'S', fetchImpl });
+  const offers = await provider.search('hotels', { cityCode: 'PMI', checkin: '2027-01-01', checkout: '2027-01-05' });
+  assert.equal(offers[0].details.code, null);
+  // The default now() (Date.now) produced a 64-char SHA256 signature.
+  assert.match(fetchImpl.calls[0].options.headers['X-Signature'], /^[0-9a-f]{64}$/);
+});

@@ -54,6 +54,23 @@ test('dedupeOffers passes through offers that cannot be matched', () => {
   assert.deepEqual(merged[0].alternatives, []);
 });
 
+test('canonicalKey tolerates a segment with every field missing', () => {
+  // Exercises the `|| ''` fallbacks in the segment key builder.
+  const key = canonicalKey(offer({ details: { segments: [{}] } }));
+  assert.equal(typeof key, 'string');
+  assert.ok(key.startsWith('flights:'));
+});
+
+test('dedupeOffers sorts an unpriced offer last within a duplicate group (either input order)', () => {
+  const segs = [{ carrier: 'AA', number: '100', at: '2026-07-01T08:00', from: 'LAX', to: 'JFK' }];
+  const unpriced = offer({ id: 'unpriced', provider: 'a', price: { amount: null, currency: 'USD' }, details: { segments: segs } });
+  const priced = offer({ id: 'priced', provider: 'b', price: { amount: 200, total: 200, currency: 'USD' }, details: { segments: segs } });
+
+  // Both input orders, so the ?? Infinity guard is exercised on each operand.
+  assert.equal(dedupeOffers([unpriced, priced])[0].provider, 'b');
+  assert.equal(dedupeOffers([priced, unpriced])[0].provider, 'b');
+});
+
 class StubProvider extends BaseProvider {
   constructor(name, offers) { super({ name }); this._offers = offers; }
   supports() { return true; }

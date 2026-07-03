@@ -87,11 +87,11 @@ export class TravelEngine {
 
     const providerResults = settled.map((result) => result.status === 'fulfilled'
       ? result.value
-      : { provider: result.reason?.provider || 'unknown', offers: [], error: 'Provider failed' });
+      : { provider: result.reason?.provider || 'unknown', offers: [], error: result.reason?.category || classifyProviderError(result.reason) });
 
     const skippedProviders = this.providers
       .filter((provider) => provider.ready && provider.supports(type) && !this.circuitBreaker.canCall(provider.name))
-      .map((provider) => ({ provider: provider.name, offers: [], error: 'Provider circuit is open' }));
+      .map((provider) => ({ provider: provider.name, offers: [], error: 'unavailable' }));
 
     const allResults = [...providerResults, ...skippedProviders];
     const rawOffers = allResults.flatMap((result) => result.offers);
@@ -108,6 +108,9 @@ export class TravelEngine {
     // price is represented even when it was merged into another offer's alternatives.
     const summary = summarizePrices(normalizedOffers);
 
+    const attempted = allResults.length;
+    const errored = allResults.filter((result) => result.error).length;
+
     return {
       query,
       sort: query.sort || 'price',
@@ -119,8 +122,10 @@ export class TravelEngine {
       cheapest: summary.cheapest,
       bestByProvider: summary.bestByProvider,
       offers,
-      providers: allResults.map(({ provider, error }) => ({ provider, status: error ? 'error' : 'success', error })),
-      ...(message(ranked.length, summary))
+      providers: allResults.map(({ provider, error }) => (
+        error ? { provider, status: 'error', error } : { provider, status: 'success' }
+      )),
+      ...(buildMessage(type, ranked.length, summary, { attempted, errored }))
     };
   }
 
@@ -139,15 +144,17 @@ export class TravelEngine {
     return offers.map((offer) => {
       const original = offer.price;
       if (!original || original.currency === this.baseCurrency || original.amount === null) return offer;
-      const convert = (v) => (v === null || v === undefined ? v : this.currencyConverter.convert(v, original.currency, this.baseCurrency));
+      const convert = (v) => this.currencyConverter.convert(v, original.currency, this.baseCurrency);
       const amount = convert(original.amount);
       if (amount === null) return offer; // can't convert -> keep original untouched
+      // amount converted, so total/base (same currency pair) convert too; only
+      // their presence needs guarding, not the conversion result.
       const total = original.total !== undefined && original.total !== null ? convert(original.total) : amount;
       return {
         ...offer,
         price: {
           amount: roundMoney(amount),
-          total: roundMoney(total ?? amount),
+          total: roundMoney(total),
           currency: this.baseCurrency,
           base: original.base !== null && original.base !== undefined ? roundMoney(convert(original.base)) : null,
           estimated: Boolean(original.estimated),
@@ -163,6 +170,7 @@ export class TravelEngine {
       timeout = setTimeout(() => {
         const err = new Error(`Provider timed out after ${provider.timeoutMs}ms`);
         err.provider = provider.name;
+        err.category = 'timeout';
         reject(err);
       }, provider.timeoutMs);
     });
@@ -172,21 +180,24 @@ export class TravelEngine {
     // Attach a no-op handler so a late rejection is never an unhandled rejection.
     searchPromise.catch(() => {});
 
+    // The race settles as soon as the search resolves/rejects or the timer
+    // fires; clear the timer on both outcomes so a late timer can never reject
+    // an already-settled race (which would be an unhandled rejection).
     try {
       const startedAt = Date.now();
       const offers = await Promise.race([searchPromise, timeoutPromise]);
+      clearTimeout(timeout);
       this.circuitBreaker.recordSuccess(provider.name);
       this.metrics.increment('provider.success', { provider: provider.name, type });
       this.metrics.observe('provider.duration_ms', Date.now() - startedAt, { provider: provider.name, type });
       return { provider: provider.name, offers };
     } catch (err) {
+      clearTimeout(timeout);
       this.circuitBreaker.recordFailure(provider.name);
       this.metrics.increment('provider.failure', { provider: provider.name, type });
       this.logger?.warn('Provider search failed', { provider: provider.name, type, error: err.message });
       err.provider = provider.name;
       throw err;
-    } finally {
-      clearTimeout(timeout);
     }
   }
 }
@@ -196,10 +207,19 @@ function roundMoney(amount) {
 }
 
 function clampLimit(value) {
+  // validateQuery has already guaranteed a 1-50 integer when limit is present.
   if (value === undefined || value === null || value === '') return null;
-  const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.min(n, 50);
+  return Number.parseInt(value, 10);
+}
+
+// Maps a provider failure to a coarse, non-sensitive category so integrators can
+// react (retry a timeout, fix a key on auth) without any internal detail leaking.
+function classifyProviderError(err) {
+  const status = err?.statusCode ?? err?.status;
+  if (err?.name === 'AbortError' || /timed out/i.test(err?.message || '')) return 'timeout';
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 429) return 'rate_limited';
+  return 'unavailable';
 }
 
 // Builds the cheapest-price summary independently of the display sort, and
@@ -210,6 +230,7 @@ function summarizePrices(offers) {
   const currencies = new Set(priced.map((offer) => offer.price.currency));
   const sameCurrency = currencies.size <= 1;
   const anyEstimated = priced.some((offer) => offer.price?.estimated === true);
+  const anyDemo = offers.some((offer) => offer.freshness === 'demo');
   const priceComparable = priced.length > 0 && sameCurrency && !anyEstimated;
   const byPrice = [...priced].sort((a, b) => comparableAmount(a) - comparableAmount(b));
 
@@ -230,27 +251,52 @@ function summarizePrices(offers) {
     priceComparable,
     sameCurrency,
     anyEstimated,
+    anyDemo,
     freshness: summarizeFreshness(offers),
     cheapest,
     bestByProvider
   };
 }
 
+// One freshness label for the whole result: a single shared value when every
+// offer agrees (live/cached/demo), otherwise `mixed`. Never claims `live` unless
+// every offer really is live.
 function summarizeFreshness(offers) {
-  if (offers.length === 0) return null;
-  const live = offers.every((offer) => offer.freshness === 'live');
-  if (live) return 'live';
-  const cached = offers.every((offer) => offer.freshness !== 'live');
-  return cached ? 'cached' : 'mixed';
+  const values = new Set(offers.map((offer) => offer.freshness || 'unknown'));
+  if (values.size === 0) return null;
+  if (values.size === 1) return [...values][0];
+  return 'mixed';
 }
 
-function message(rankedCount, summary) {
-  if (rankedCount === 0) return { message: 'No offers matched your query.' };
+function buildMessage(type, rankedCount, summary, { attempted, errored }) {
+  if (rankedCount === 0) {
+    if (attempted === 0) {
+      return { message: 'No providers are currently available for this search.' };
+    }
+    if (errored === attempted) {
+      return { message: 'Travel data sources are temporarily unavailable. Please try again shortly.' };
+    }
+    if (type === 'airports') {
+      return { message: 'No matching airport was found for that code.' };
+    }
+    if (errored > 0) {
+      return { message: 'No offers matched your query. Some sources were unavailable, so more results may exist.' };
+    }
+    return { message: 'No offers matched your query.' };
+  }
+
   if (!summary.sameCurrency) {
     return { message: 'Offers span multiple currencies; enable currency conversion (CURRENCY_CONVERSION_ENABLED) for a directly comparable lowest price.' };
   }
-  if (summary.anyEstimated) {
-    return { message: 'Some prices are estimates or cached fares without full taxes/fees; the lowest price may not be a final all-in total.' };
+
+  const notes = [];
+  if (summary.anyDemo) {
+    notes.push('Results include demo placeholder data because no live provider is configured for this search; these are not real quotes.');
+  } else if (summary.anyEstimated) {
+    notes.push('Some prices are estimates or cached fares without full taxes/fees; the lowest price may not be a final all-in total.');
   }
-  return {};
+  if (errored > 0) {
+    notes.push('Some sources were unavailable, so more options may exist.');
+  }
+  return notes.length ? { message: notes.join(' ') } : {};
 }

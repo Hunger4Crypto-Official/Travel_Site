@@ -33,8 +33,9 @@ comparison genuinely trustworthy:
 - **Honest comparability.** `priceComparable` is `true` only when offers share one currency **and**
   every price is a verified all-in total. A cached/estimated fare or a currency mismatch flips it to
   `false` with an explanatory `message` instead of silently mis-ranking.
-- **Freshness.** Each offer is `live` or `cached`; the result's `freshness` is `live`, `cached`, or
-  `mixed`. Live data wins ties.
+- **Freshness.** Each offer is `live`, `cached`, or `demo` (placeholder); the result's `freshness`
+  is that shared value, or `mixed` when offers disagree. Live data wins ties, and demo data never
+  claims to be live.
 - **Summaries.** `cheapest` (overall lowest, independent of display `sort`) and `bestByProvider`
   (each provider's best price) are always present.
 
@@ -60,13 +61,17 @@ GET /openapi.yaml           # the live API contract (also /openapi.json, /v1/ope
 GET /health
 GET /ready
 GET /metrics
-GET /v1/flights/search?from=LAX&to=JFK&date=2026-07-01
-GET /v1/flights/search?from=LAX&to=JFK&date=2026-07-01&sort=score&limit=5
-GET /v1/hotels/search?city=Las%20Vegas&cityCode=LAS&checkin=2026-07-01&checkout=2026-07-05
-GET /v1/cars/search?city=Miami&date=2026-07-01
+GET /v1/flights/search?from=LAX&to=JFK&date=2027-05-01
+GET /v1/flights/search?from=LAX&to=JFK&date=2027-05-01&sort=score&limit=5
+GET /v1/hotels/search?city=Las%20Vegas&cityCode=LAS&checkin=2027-05-01&checkout=2027-05-05
+GET /v1/cars/search?city=Miami&date=2027-05-01
 GET /v1/airport/info?code=LAX
 GET /v1/flights/live?icao24=4b1814
 ```
+
+The dates above are placeholders — use any date that is today or later (past dates return a `400`).
+`GET /` returns the same examples with live, always-valid future dates. Flight `from`/`to` and the
+airport `code` are 3-letter IATA or 4-letter ICAO codes; hotels and cars accept a free-text `city`.
 
 Common query parameters: `sort` (`price` | `score`), `limit` (1–50), and the numeric
 `adults` / `children` / `rooms`. Invalid values return a `400` naming the field. A throttled
@@ -79,26 +84,32 @@ request returns `429` with a `Retry-After` header; `405` responses include an `A
   "status": "success",
   "source": "the-travel-club",
   "data": {
-    "query": {},
+    "query": { "from": "LAX", "to": "JFK", "date": "2027-05-01" },
     "sort": "price",
-    "count": 0,
-    "total": 0,
+    "count": 1,
+    "total": 1,
     "currency": "USD",
     "priceComparable": true,
     "freshness": "live",
-    "cheapest": { "offerId": "…", "provider": "…", "price": { "amount": 0, "total": 0, "currency": "USD", "estimated": false } },
-    "bestByProvider": [],
+    "cheapest": { "offerId": "sky-scrapper-…", "provider": "sky-scrapper", "price": { "amount": 312.4, "total": 312.4, "currency": "USD", "estimated": false } },
+    "bestByProvider": [
+      { "provider": "sky-scrapper", "offerId": "sky-scrapper-…", "price": { "amount": 312.4, "total": 312.4, "currency": "USD", "estimated": false } }
+    ],
     "offers": [
       {
-        "id": "…",
-        "provider": "travelpayouts",
+        "id": "sky-scrapper-…",
+        "provider": "sky-scrapper",
         "price": { "amount": 312.4, "total": 312.4, "base": 260, "currency": "USD", "estimated": false },
-        "freshness": "cached",
-        "alternatives": []
+        "freshness": "live",
+        "alternatives": [
+          { "provider": "travelpayouts", "offerId": "…", "price": { "amount": 320, "total": 320, "currency": "USD", "estimated": true } }
+        ]
       }
     ],
-    "providers": [],
-    "message": "No offers matched your query."
+    "providers": [
+      { "provider": "sky-scrapper", "status": "success" },
+      { "provider": "travelpayouts", "status": "success" }
+    ]
   },
   "meta": {
     "brand": {
@@ -113,9 +124,13 @@ request returns `429` with a `Retry-After` header; `405` responses include an `A
 ```
 
 `count` is the number of offers returned (after any `limit`); `total` is how many matched before
-limiting. `message` appears only when nothing matched. Every response (success or error) carries
-`meta.requestId` and `meta.version`. Error responses use `{ "status": "error", "error": { message,
-statusCode, details }, "meta": { requestId, version } }`.
+limiting. `message` appears when nothing matched, when results include estimated/demo prices, or
+when some sources were unavailable — so a zero-result response tells you whether the search was
+genuinely empty or whether providers were down. Each entry in `providers` is `success` or `error`;
+an errored entry carries a coarse `error` category (`timeout`, `auth`, `rate_limited`, or
+`unavailable`) with no internal detail. Every response (success or error) carries `meta.requestId`
+and `meta.version`. Error responses use `{ "status": "error", "error": { message, statusCode,
+details }, "meta": { requestId, version } }`.
 
 ## Project structure
 
@@ -245,7 +260,7 @@ enforces per-provider timeouts and a response-size ceiling.
 | IATA/ICAO reference | airports | none | Bundled dataset (`src/providers/data/airports.js`), fully offline. |
 | OpenSky Network | tracking | none (optional login) | Live flight positions. `OPENSKY_USERNAME`/`OPENSKY_PASSWORD` raise rate limits. |
 | ADS-B (adsb.lol, airplanes.live) | tracking | none | Community ADS-B fallbacks alongside OpenSky. |
-| Sky-Scrapper (RapidAPI) | flights | `SKYSCRAPPER_RAPIDAPI_KEY` or `RAPIDAPI_KEY` | **Live** Skyscanner prices (all-in totals). Resolves airports/cities automatically. |
+| Sky-Scrapper (RapidAPI) | flights | `SKYSCRAPPER_RAPIDAPI_KEY` or `RAPIDAPI_KEY` | **Live** Skyscanner prices (all-in totals). Resolves the airport codes to Skyscanner ids automatically. |
 | Booking.com (RapidAPI) | hotels | `BOOKINGCOM_RAPIDAPI_KEY` or `RAPIDAPI_KEY` | Live availability; all-in total = gross + excluded charges. Free-text `city`. |
 | Hotelbeds APItude | hotels | `HOTELBEDS_API_KEY`, `HOTELBEDS_SECRET` | SHA256-signed; accepts `cityCode` or a resolvable `city`. `HOTELBEDS_ENV=test\|production`. |
 | AeroDataBox (RapidAPI) | airports | `AERODATABOX_RAPIDAPI_KEY` or `RAPIDAPI_KEY` | Live airport detail enrichment. |

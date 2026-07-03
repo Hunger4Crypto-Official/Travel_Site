@@ -140,6 +140,40 @@ test('AdsbProvider tolerates a record with only a hex code', async () => {
   assert.equal(offers[0].title, 'Live position for aircraft');
 });
 
+test('OpenSkyProvider falls back to an empty icao24 when the query field is missing', async () => {
+  const fetchImpl = stubFetch((url) => {
+    assert.match(url, /states\/all\?icao24=$/);
+    return jsonResponse({ time: 1, states: [] });
+  });
+  const provider = new OpenSkyProvider({ fetchImpl });
+  assert.deepEqual(await provider.search('tracking', {}), []);
+});
+
+test('AdsbProvider falls back to an empty icao24 when the query field is missing', async () => {
+  const fetchImpl = stubFetch((url) => {
+    assert.match(url, /\/v2\/icao\/$/);
+    return jsonResponse({ now: 1, ac: [] });
+  });
+  const provider = new AdsbProvider({ baseUrl: 'https://x', fetchImpl });
+  assert.deepEqual(await provider.search('tracking', {}), []);
+});
+
+test('AirportInfoProvider falls back to an empty code when the query field is missing', async () => {
+  const provider = new AirportInfoProvider();
+  assert.deepEqual(await provider.search('airports', {}), []);
+});
+
+test('AirportInfoProvider derives the offer id from icao when the airport has no iata', async () => {
+  const provider = new AirportInfoProvider({
+    dataset: [{ icao: 'KXYZ', name: 'Test Field', city: 'Nowhere', country: 'US', lat: 1, lon: 2, tz: 'UTC' }]
+  });
+  const offers = await provider.search('airports', { code: 'KXYZ' });
+
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0].id, 'airport-KXYZ');
+  assert.equal(offers[0].details.icao, 'KXYZ');
+});
+
 test('TravelEngine serves real live tracking through the OpenSky provider', async () => {
   const fetchImpl = stubFetch(jsonResponse({ time: 1700000010, states: [sampleState] }));
   const engine = new TravelEngine({ providers: [new OpenSkyProvider({ fetchImpl })] });

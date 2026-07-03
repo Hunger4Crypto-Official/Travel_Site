@@ -91,6 +91,21 @@ test('logger falls back to info for an unknown level', () => {
   assert.equal(lines.length, 1);
 });
 
+test('logger routes error records to the error sink method', () => {
+  const calls = [];
+  const sink = { log: () => calls.push('log'), warn: () => calls.push('warn'), error: () => calls.push('error') };
+  const logger = createLogger({ level: 'debug', sink });
+  logger.error('boom');
+  assert.deepEqual(calls, ['error']);
+});
+
+test('MetricsRegistry snapshot reports a zero average for a timing with no samples', () => {
+  const metrics = new MetricsRegistry();
+  // A defensive guard against divide-by-zero for a timing entry with count 0.
+  metrics.timings.set('empty', { count: 0, totalMs: 0, maxMs: 0 });
+  assert.equal(metrics.snapshot().timings.empty.averageMs, 0);
+});
+
 // ---- TokenBucketRateLimiter ------------------------------------------------
 
 test('TokenBucketRateLimiter depletes then refills over time', () => {
@@ -163,6 +178,10 @@ test('normalizePrice accepts a breakdown object and computes/keeps the total', (
   const withNullFees = normalizePrice({ amount: 100, total: 100, fees: null });
   assert.equal(withNullFees.fees, null);
   assert.equal(withNullFees.total, 100);
+
+  // With no object currency and an empty fallback, it defaults to USD.
+  const defaulted = normalizePrice({ amount: 100, total: 100 }, '');
+  assert.equal(defaulted.currency, 'USD');
 });
 
 test('normalizeOffer fills defaults and an id when none is given', () => {
@@ -209,6 +228,13 @@ test('rankOffers breaks price ties by score, then prefers live data', () => {
     { id: 'live', price: { total: 100 }, score: 5, freshness: 'live' }
   ]);
   assert.equal(byFresh[0].id, 'live');
+
+  // Price tie where a scoreless offer defaults to score 0 in the tiebreak.
+  // Both input orders, so each `?? 0` operand is exercised on both sides.
+  const noscore = { id: 'noscore', price: { total: 100 }, freshness: 'live' };
+  const scored = { id: 'scored', price: { total: 100 }, score: 3, freshness: 'live' };
+  assert.equal(rankOffers([noscore, scored])[0].id, 'scored');
+  assert.equal(rankOffers([scored, noscore])[0].id, 'scored');
 });
 
 // ---- BaseProvider defaults -------------------------------------------------
@@ -234,6 +260,16 @@ test('MockProvider can exclude verticals covered by real providers', async () =>
   assert.equal(mock.supports('hotels'), true);
   assert.deepEqual(await mock.search('flights', {}), []); // never fabricates excluded verticals
   assert.deepEqual(mock.status().supports, ['hotels', 'cars']);
+});
+
+test('MockProvider defaults its name and returns [] for verticals it has no data for', async () => {
+  const mock = new MockProvider(); // no name -> default
+  assert.equal(mock.name, 'mock-provider');
+  // A supported-list vertical with no offsets entry yields an empty list, not a throw.
+  assert.deepEqual(await mock.search('airports', {}), []);
+  // Demo offers are tagged as non-live placeholder data.
+  const [offer] = await mock.search('flights', {});
+  assert.equal(offer.freshness, 'demo');
 });
 
 // ---- provider status() + non-vertical short-circuits -----------------------

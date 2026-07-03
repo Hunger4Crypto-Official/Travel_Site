@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { brand } from '../src/config/brand.js';
-import { handleRequest } from '../src/routes/router.js';
+import { handleRequest, clientIp } from '../src/routes/router.js';
 
 const logger = { info() {}, warn() {}, error() {}, debug() {} };
 
@@ -103,6 +103,41 @@ test('unknown routes return a structured 404 listing available routes', async ()
     assert.equal(res.status, 404);
     assert.equal(body.error.statusCode, 404);
     assert.ok(body.error.details.availableRoutes.includes('/v1/flights/search'));
+  });
+});
+
+test('a trailing slash resolves to the same route instead of 404', async () => {
+  const seen = [];
+  const engine = fakeEngine({ search: async (type) => { seen.push(type); return { query: {}, count: 0, offers: [], providers: [] }; } });
+  await withServer(openConfig, engine, async (base) => {
+    const res = await fetch(`${base}/v1/flights/search/?from=LAX&to=JFK`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(seen, ['flights']);
+  });
+});
+
+test('clientIp falls back to "unknown" without a forwarded header or socket', () => {
+  assert.equal(clientIp({ headers: {}, socket: null }), 'unknown');
+  assert.equal(clientIp({ headers: { 'x-forwarded-for': '198.51.100.9' }, socket: null }), '198.51.100.9');
+});
+
+test('an X-Forwarded-For client is rate-limited by its forwarded address', async () => {
+  const seen = [];
+  const engine = fakeEngine({ search: async (type, query, ctx) => { seen.push(ctx.clientKey); return { query: {}, count: 0, offers: [], providers: [] }; } });
+  await withServer(openConfig, engine, async (base) => {
+    const res = await fetch(`${base}/v1/flights/search?from=LAX&to=JFK`, { headers: { 'x-forwarded-for': '203.0.113.7, 10.0.0.1' } });
+    assert.equal(res.status, 200);
+    assert.equal(seen[0], '203.0.113.7'); // first hop wins, not the socket address
+  });
+});
+
+test('the root index advertises always-valid future example dates', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const body = await (await fetch(`${base}/`)).json();
+    const url = new URL(`http://x${body.data.endpoints.flights}`);
+    const today = new Date().toISOString().slice(0, 10);
+    // The example date must be strictly in the future so a copy-paste succeeds.
+    assert.ok(url.searchParams.get('date') > today);
   });
 });
 

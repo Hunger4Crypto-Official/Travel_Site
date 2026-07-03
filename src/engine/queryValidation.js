@@ -17,8 +17,9 @@ const integerFields = new Set(['adults', 'children', 'rooms', 'limit']);
 
 const dateFields = new Set(['date', 'returnDate', 'checkin', 'checkout']);
 
-export function validateQuery(type, query = {}, { maxQueryLength = 120, maxParams = 24 } = {}) {
+export function validateQuery(type, query = {}, { maxQueryLength = 120, maxParams = 24, now = Date.now() } = {}) {
   const normalized = normalizeQuery(query);
+  const todayIso = new Date(now).toISOString().slice(0, 10);
 
   const entries = Object.entries(normalized);
   if (entries.length > maxParams) {
@@ -37,14 +38,31 @@ export function validateQuery(type, query = {}, { maxQueryLength = 120, maxParam
       throwBadRequest(`Query parameter is too long: ${key}`, { type, field: key, maxQueryLength });
     }
     if (!knownFields.has(key)) continue;
-    if (dateFields.has(key) && !isIsoDate(value)) {
-      throwBadRequest(`Invalid date format for ${key}. Expected YYYY-MM-DD`, { type, field: key });
+    if (dateFields.has(key)) {
+      if (!isIsoDate(value)) {
+        throwBadRequest(`Invalid date format for ${key}. Expected YYYY-MM-DD`, { type, field: key });
+      }
+      // Travel is forward-looking; a past date can only be a mistake, and
+      // silently "finding" offers for it would mislead the caller.
+      if (value < todayIso) {
+        throwBadRequest(`${key} cannot be in the past (today is ${todayIso})`, { type, field: key, today: todayIso });
+      }
     }
     if (cityCodeFields.has(key) && !/^[A-Za-z]{3}$/.test(String(value))) {
       throwBadRequest(`Invalid ${key}. Expected a 3-letter city/location code`, { type, field: key });
     }
-    if (integerFields.has(key) && !/^\d+$/.test(String(value))) {
-      throwBadRequest(`Invalid ${key}. Expected a non-negative integer`, { type, field: key });
+    if (integerFields.has(key)) {
+      if (!/^\d+$/.test(String(value))) {
+        throwBadRequest(`Invalid ${key}. Expected a non-negative integer`, { type, field: key });
+      }
+      // limit has an explicit documented range; enforce it here so the OpenAPI
+      // contract (1-50) and the runtime behavior cannot drift apart.
+      if (key === 'limit') {
+        const n = Number(value);
+        if (n < 1 || n > 50) {
+          throwBadRequest('Invalid limit. Expected an integer from 1 to 50', { type, field: 'limit', min: 1, max: 50 });
+        }
+      }
     }
   }
 

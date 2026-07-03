@@ -21,6 +21,12 @@ class CountingProvider extends MockProvider {
   async search(type, query) { this.calls += 1; return super.search(type, query); }
 }
 
+class FailingProvider extends BaseProvider {
+  constructor(name, err) { super({ name }); this._err = err; }
+  supports(type) { return type === 'flights'; }
+  async search() { throw this._err; }
+}
+
 test('rankOffers sorts valid prices from lowest to highest by default', () => {
   const ranked = rankOffers([
     { price: { amount: 50 }, score: 100 },
@@ -74,11 +80,110 @@ test('TravelEngine echoes applied sort, reports total, and supports limit', asyn
   assert.equal(limited.offers.length, 1);
 });
 
-test('TravelEngine returns a friendly message when nothing matches', async () => {
+test('TravelEngine returns an airport-specific message when a code is not found', async () => {
   const engine = new TravelEngine({ providers: [new AirportInfoProvider()] });
   const result = await engine.search('airports', { code: 'ZZZ' });
   assert.equal(result.count, 0);
-  assert.equal(result.message, 'No offers matched your query.');
+  assert.equal(result.message, 'No matching airport was found for that code.');
+});
+
+test('TravelEngine flags demo placeholder data in freshness and message', async () => {
+  const engine = new TravelEngine({ providers: [new MockProvider({ name: 'demo' })] });
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+
+  assert.equal(result.freshness, 'demo'); // never "live" for placeholder data
+  assert.equal(result.offers[0].freshness, 'demo');
+  assert.match(result.message, /demo placeholder data/);
+});
+
+test('TravelEngine reports temporary unavailability when every provider fails', async () => {
+  const engine = new TravelEngine({ providers: [new ThrowingProvider()] });
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+
+  assert.equal(result.count, 0);
+  assert.equal(result.message, 'Travel data sources are temporarily unavailable. Please try again shortly.');
+  assert.equal(result.providers[0].status, 'error');
+  assert.equal(result.providers[0].error, 'unavailable'); // coarse category, no internals
+});
+
+test('TravelEngine reports "no providers available" when none support the type', async () => {
+  const engine = new TravelEngine({ providers: [new AirportInfoProvider()] });
+  const result = await engine.search('cars', { city: 'Miami' });
+  assert.equal(result.count, 0);
+  assert.equal(result.message, 'No providers are currently available for this search.');
+});
+
+test('TravelEngine notes partial unavailability when some providers fail but others return nothing', async () => {
+  // A provider that supports flights but returns no offers, alongside one that throws.
+  class EmptyProvider extends BaseProvider {
+    constructor() { super({ name: 'empty' }); }
+    supports(type) { return type === 'flights'; }
+    async search() { return []; }
+  }
+  const engine = new TravelEngine({ providers: [new EmptyProvider(), new ThrowingProvider()] });
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+
+  assert.equal(result.count, 0);
+  assert.match(result.message, /Some sources were unavailable/);
+});
+
+test('TravelEngine categorizes a provider timeout distinctly from other failures', async () => {
+  const engine = new TravelEngine({ providers: [new HangingProvider()] });
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(result.providers.find((p) => p.provider === 'hang').error, 'timeout');
+});
+
+test('TravelEngine reports providers skipped by an open circuit as unavailable', async () => {
+  const openBreaker = {
+    canCall: (name) => name !== 'blocked',
+    recordSuccess() {},
+    recordFailure() {},
+    status() { return { open: true }; }
+  };
+  class BlockedProvider extends BaseProvider {
+    constructor() { super({ name: 'blocked' }); }
+    supports(t) { return t === 'flights'; }
+    async search() { return []; }
+  }
+  const engine = new TravelEngine({
+    providers: [new MockProvider({ name: 'demo' }), new BlockedProvider()],
+    circuitBreaker: openBreaker
+  });
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  const blocked = result.providers.find((p) => p.provider === 'blocked');
+
+  assert.equal(blocked.status, 'error');
+  assert.equal(blocked.error, 'unavailable'); // circuit-open is surfaced as unavailable
+  assert.equal(result.count, 3); // demo still serves offers
+});
+
+test('TravelEngine maps provider failures to coarse, non-sensitive categories', async () => {
+  const mk = (props) => Object.assign(new Error('boom'), props);
+  const engine = new TravelEngine({
+    providers: [
+      new FailingProvider('unauth', mk({ statusCode: 401 })),
+      new FailingProvider('forbidden', mk({ statusCode: 403 })),
+      new FailingProvider('status-fallback', mk({ status: 403 })), // uses .status, not .statusCode
+      new FailingProvider('throttled', mk({ statusCode: 429 })),
+      new FailingProvider('aborted', mk({ name: 'AbortError' })),
+      new FailingProvider('slow', mk({ message: 'Upstream request timed out after 8000ms' })),
+      new FailingProvider('blank', new Error('')), // no name, empty message -> default
+      new FailingProvider('generic', mk({}))
+    ],
+    // A logger present during a failure exercises the warn path in searchProvider.
+    logger: { warn() {}, info() {} }
+  });
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  const category = (name) => result.providers.find((p) => p.provider === name).error;
+
+  assert.equal(category('unauth'), 'auth');
+  assert.equal(category('forbidden'), 'auth');
+  assert.equal(category('status-fallback'), 'auth');
+  assert.equal(category('throttled'), 'rate_limited');
+  assert.equal(category('aborted'), 'timeout');
+  assert.equal(category('slow'), 'timeout');
+  assert.equal(category('blank'), 'unavailable');
+  assert.equal(category('generic'), 'unavailable');
 });
 
 test('TravelEngine validates required query parameters', async () => {
@@ -153,6 +258,32 @@ test('TravelEngine converts offer prices to the base currency before ranking', a
   assert.equal(result.currency, 'USD');
   assert.equal(result.cheapest.offerId, 'b');
   assert.equal(result.cheapest.price.amount, 150);
+});
+
+test('TravelEngine converts full price breakdowns and leaves unpriced/unconvertible offers alone', async () => {
+  const converter = new CurrencyConverter({ base: 'USD', rates: { EUR: 0.5 }, now: () => 0 });
+  const engine = new TravelEngine({
+    providers: [new FixedPriceProvider('mix', [
+      { id: 'full', type: 'flights', price: { amount: 100, total: 110, base: 90, currency: 'EUR' }, score: 1 },
+      { id: 'nullamount', type: 'flights', price: { amount: null, currency: 'EUR' }, score: 1 },
+      { id: 'gbp', type: 'flights', price: { amount: 80, currency: 'GBP' }, score: 1 } // no GBP rate -> unconvertible
+    ])],
+    currencyConverter: converter,
+    baseCurrency: 'USD',
+    logger: { warn() {}, info() {} }
+  });
+
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  const byId = Object.fromEntries(result.offers.map((o) => [o.id, o]));
+
+  // Full breakdown converted at 1 EUR = 2 USD (amount, total and base all move).
+  assert.equal(byId.full.price.amount, 200);
+  assert.equal(byId.full.price.total, 220);
+  assert.equal(byId.full.price.base, 180);
+  assert.equal(byId.full.price.currency, 'USD');
+  // A null-amount offer and an offer with no rate keep their original price.
+  assert.equal(byId.nullamount.price.currency, 'EUR');
+  assert.equal(byId.gbp.price.currency, 'GBP');
 });
 
 test('TravelEngine reports the cheapest offer and the best price per provider', async () => {

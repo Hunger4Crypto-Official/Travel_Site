@@ -49,6 +49,9 @@ export class MockProvider extends BaseProvider {
       id: `${this.name}-${type}-${index + 1}`,
       // Demo data is not a real quote, so it must never count as an all-in total.
       price: { amount: price, total: price, currency: 'USD', estimated: true },
+      // ...nor claim to be live data. `demo` freshness keeps placeholder prices
+      // from ever being presented as a real, up-to-the-minute quote.
+      freshness: 'demo',
       title: `${type.slice(0, -1)} option ${index + 1}`,
       deepLink: null,
       affiliateId: this.affiliateId,

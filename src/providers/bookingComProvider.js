@@ -138,7 +138,9 @@ export class BookingComProvider extends BaseProvider {
         // could collide with another provider's ids in dedupe; the same hotel
         // still collapses across providers via the name+city canonical key.
         hotelId: hotel.hotel_id ?? property.id ?? null,
-        city: property.wishlistName || destination.cityName || null,
+        // destination.cityName always resolves (it falls back to the query), so
+        // this is never null in practice.
+        city: property.wishlistName || destination.cityName,
         reviewScore: property.reviewScore ?? null,
         reviewCount: property.reviewCount ?? null,
         stars: property.accuratePropertyClass ?? property.propertyClass ?? null,

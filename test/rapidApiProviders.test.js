@@ -105,13 +105,59 @@ test('SkyScrapperProvider returns [] when a place cannot be resolved', async () 
   assert.deepEqual(await provider.search('flights', { from: '', to: '' }), []);
 });
 
-test('SkyScrapperProvider surfaces an API rejection as an error', async () => {
-  const fetchImpl = skyFetch({ flights: { status: false, message: [{ date: 'invalid' }] } });
+test('SkyScrapperProvider surfaces an API rejection as an error (array message: strings + objects)', async () => {
+  const fetchImpl = skyFetch({ flights: { status: false, message: ['bad date', { date: 'invalid' }] } });
   const provider = new SkyScrapperProvider({ apiKey: 'k', fetchImpl });
   await assert.rejects(
     provider.search('flights', { from: 'LAX', to: 'JFK' }),
-    /Sky-Scrapper error: .*invalid/
+    /Sky-Scrapper error: bad date; .*invalid/
   );
+});
+
+test('SkyScrapperProvider surfaces a plain-string API error message', async () => {
+  const fetchImpl = skyFetch({ flights: { status: false, message: 'quota exceeded' } });
+  await assert.rejects(
+    new SkyScrapperProvider({ apiKey: 'k', fetchImpl }).search('flights', { from: 'LAX', to: 'JFK' }),
+    /Sky-Scrapper error: quota exceeded/
+  );
+});
+
+test('SkyScrapperProvider fills segment/route fallbacks and forwards cabin + returnDate', async () => {
+  const edgeItinerary = {
+    // no id -> id derived from segment carrier+number; no carriers block -> no carrier name
+    price: { raw: 250 },
+    legs: [{
+      origin: { flightPlaceId: 'LAX' },   // no displayCode -> route shows '?'
+      destination: {},                     // nothing -> route shows '?'
+      stopCount: 2,
+      segments: [{
+        marketingCarrier: { name: 'JetBlue' }, // no alternateId -> falls back to name
+        origin: { flightPlaceId: 'LAX' },      // no displayCode -> falls back to flightPlaceId
+        destination: {},                        // neither -> null
+        departure: '2026-07-01T08:00:00',
+        flightNumber: '9'
+      }]
+    }],
+    score: 0.5
+  };
+  const fetchImpl = skyFetch({ flights: { status: true, data: { itineraries: [edgeItinerary] } } });
+  const offers = await new SkyScrapperProvider({ apiKey: 'k', fetchImpl })
+    .search('flights', { from: 'LAX', to: 'JFK', cabin: 'business', returnDate: '2026-07-10' });
+
+  assert.equal(offers.length, 1);
+  const [offer] = offers;
+  assert.equal(offer.details.segments[0].carrier, 'JetBlue'); // name fallback
+  assert.equal(offer.details.segments[0].from, 'LAX');        // flightPlaceId fallback
+  assert.equal(offer.details.segments[0].to, null);           // both missing
+  assert.equal(offer.details.stops, 2);
+  assert.match(offer.title, /\? → \?/);                       // no display codes, no carrier name
+  assert.ok(offer.id.startsWith('sky-scrapper-JetBlue9'));    // id derived from segments
+  assert.equal(offer.score, 50);                              // itinerary.score 0.5 scaled
+
+  const call = fetchImpl.calls.find((c) => c.url.includes('/searchFlights'));
+  const params = new URL(call.url).searchParams;
+  assert.equal(params.get('cabinClass'), 'business');
+  assert.equal(params.get('returnDate'), '2026-07-10');
 });
 
 test('SkyScrapperProvider skips itineraries without a numeric price and tolerates sparse legs', async () => {
@@ -124,6 +170,59 @@ test('SkyScrapperProvider skips itineraries without a numeric price and tolerate
   assert.equal(offers[0].title, 'Flight');
   assert.equal(offers[0].details.stops, 0);
   assert.equal(offers[0].score, 100); // no itinerary score -> stop-based fallback
+});
+
+test('SkyScrapperProvider tolerates sparse airport lookups (no-exact match, no navigation, non-array data)', async () => {
+  const fetchImpl = stubFetch((url) => {
+    if (url.includes('/searchAirport')) {
+      const q = new URL(url).searchParams.get('query');
+      // Origin: skyId differs from the query (no exact match) and no navigation block.
+      if (q === 'AAA') return jsonResponse({ status: true, data: [{ skyId: 'BBB', entityId: '111' }] });
+      return jsonResponse({ status: true }); // Destination: no data array at all.
+    }
+    return jsonResponse({ status: true, data: { itineraries: [] } });
+  });
+  const offers = await new SkyScrapperProvider({ apiKey: 'k', fetchImpl }).search('flights', { from: 'AAA', to: 'ZZZ' });
+  assert.deepEqual(offers, []); // destination unresolved -> no search
+});
+
+test('SkyScrapperProvider maps itineraries with missing legs, missing segments, and empty fields', async () => {
+  const itineraries = [
+    { id: 'nolegs', price: { raw: 100 } }, // no legs key -> legs default to []
+    { id: 'emptyseg', price: { raw: 200 }, legs: [
+      { origin: { displayCode: 'LAX' }, destination: { displayCode: 'JFK' } }, // leg without segments
+      { segments: [ {} ] } // one empty segment -> every field falls back to null
+    ] }
+  ];
+  const fetchImpl = skyFetch({ flights: { status: true, data: { itineraries } } });
+  const offers = await new SkyScrapperProvider({ apiKey: 'k', fetchImpl }).search('flights', { from: 'LAX', to: 'JFK' });
+
+  const nolegs = offers.find((o) => o.id === 'sky-scrapper-nolegs');
+  assert.equal(nolegs.title, 'Flight');          // no first leg
+  assert.deepEqual(nolegs.details.segments, []);  // no legs -> no segments
+
+  const emptyseg = offers.find((o) => o.id === 'sky-scrapper-emptyseg');
+  assert.equal(emptyseg.details.segments.length, 1);
+  assert.deepEqual(emptyseg.details.segments[0], { carrier: null, number: null, at: null, from: null, to: null });
+});
+
+test('SkyScrapperProvider falls back to a generic reason when an error carries no message', async () => {
+  const fetchImpl = skyFetch({ flights: { status: false } });
+  await assert.rejects(
+    new SkyScrapperProvider({ apiKey: 'k', fetchImpl }).search('flights', { from: 'LAX', to: 'JFK' }),
+    /Sky-Scrapper error: request rejected/
+  );
+});
+
+test('SkyScrapperProvider tolerates airport entries without a skyId and a payload with no itineraries', async () => {
+  const airport = (q) => q === 'QQ'
+    ? [{ entityId: 'x' }, { skyId: 'QQ', entityId: '1', navigation: { relevantFlightParams: { skyId: 'QQ', entityId: '1' } } }]
+    : [{ skyId: 'WW', entityId: '2', navigation: { relevantFlightParams: { skyId: 'WW', entityId: '2' } } }];
+  const fetchImpl = stubFetch((url) => url.includes('/searchAirport')
+    ? jsonResponse({ status: true, data: airport(new URL(url).searchParams.get('query')) })
+    : jsonResponse({ status: true, data: {} })); // both endpoints resolve, but no itineraries array
+  const offers = await new SkyScrapperProvider({ apiKey: 'k', fetchImpl }).search('flights', { from: 'QQ', to: 'WW' });
+  assert.deepEqual(offers, []);
 });
 
 // ---- Booking.com ------------------------------------------------------------
@@ -255,4 +354,85 @@ test('BookingComProvider skips hotels without a usable name or price', async () 
   assert.equal(offers[0].price.total, 88);
   assert.equal(offers[0].score, 60); // no reviews -> stars fallback (3 * 20)
   assert.equal(offers[0].details.location, null);
+});
+
+test('BookingComProvider resolves a non-city destination and maps hotel fallbacks', async () => {
+  const destinations = { status: true, data: [{ dest_id: '555', dest_type: 'region' }] }; // no search_type, no city_name
+  const hotels = { status: true, data: { hotels: [{
+    // no hotel_id -> id from property.id; grossPrice without currency -> provider currency;
+    // excludedPrice 0 -> no fee; no wishlistName -> destination.cityName; no accuratePropertyClass -> propertyClass
+    property: {
+      id: 999, name: 'Edge Inn', propertyClass: 3,
+      priceBreakdown: { grossPrice: { value: 120 }, excludedPrice: { value: 0 } }
+    }
+  }] } };
+  const fetchImpl = bookingFetch({ destinations, hotels });
+  const offers = await new BookingComProvider({ apiKey: 'k', currency: 'EUR', fetchImpl })
+    .search('hotels', { city: 'Testville' });
+
+  assert.equal(offers.length, 1);
+  const [offer] = offers;
+  assert.equal(offer.id, 'booking-com-999');   // property.id fallback
+  assert.equal(offer.price.currency, 'EUR');   // provider-currency fallback
+  assert.equal(offer.price.fees, null);        // excluded 0 -> no fee
+  assert.equal(offer.price.total, 120);
+  assert.equal(offer.details.hotelId, 999);
+  assert.equal(offer.details.city, 'Testville'); // destination.cityName fell back to the query
+  assert.equal(offer.details.stars, 3);          // propertyClass fallback
+
+  const call = fetchImpl.calls.find((c) => c.url.includes('/searchHotels'));
+  const params = new URL(call.url).searchParams;
+  assert.equal(params.get('dest_id'), '555');
+  assert.equal(params.get('search_type'), 'REGION'); // dest_type upper-cased
+});
+
+test('BookingComProvider defaults the search type to CITY when none is given', async () => {
+  const destinations = { status: true, data: [{ dest_id: '777' }] }; // no types at all
+  const fetchImpl = bookingFetch({ destinations, hotels: { status: true, data: { hotels: [] } } });
+  await new BookingComProvider({ apiKey: 'k', fetchImpl }).search('hotels', { city: 'Blankton' });
+
+  const call = fetchImpl.calls.find((c) => c.url.includes('/searchHotels'));
+  assert.equal(new URL(call.url).searchParams.get('search_type'), 'CITY');
+});
+
+test('BookingComProvider returns [] when the hotels payload has no hotel array', async () => {
+  const fetchImpl = bookingFetch({ hotels: { status: true, data: {} } });
+  const offers = await new BookingComProvider({ apiKey: 'k', fetchImpl }).search('hotels', { city: 'Las Vegas' });
+  assert.deepEqual(offers, []);
+});
+
+test('BookingComProvider surfaces an array-form API error message', async () => {
+  const fetchImpl = bookingFetch({ hotels: { status: false, message: ['field a required', { b: 1 }] } });
+  await assert.rejects(
+    new BookingComProvider({ apiKey: 'k', fetchImpl }).search('hotels', { city: 'Las Vegas' }),
+    /Booking\.com error: field a required; /
+  );
+});
+
+test('BookingComProvider returns [] when destination lookup has no data array', async () => {
+  const fetchImpl = bookingFetch({ destinations: { status: true } }); // no data array
+  assert.deepEqual(await new BookingComProvider({ apiKey: 'k', fetchImpl }).search('hotels', { city: 'X' }), []);
+});
+
+test('BookingComProvider skips a hotel with no price breakdown and nulls missing metadata', async () => {
+  const hotels = { status: true, data: { hotels: [
+    { hotel_id: 1, property: { name: 'No Price', id: 1 } }, // no priceBreakdown -> skipped
+    { property: { name: 'Anon', priceBreakdown: { grossPrice: { currency: 'USD', value: 100 } } } } // no ids, no review, no class
+  ] } };
+  const fetchImpl = bookingFetch({ hotels });
+  const offers = await new BookingComProvider({ apiKey: 'k', fetchImpl }).search('hotels', { city: 'Las Vegas' });
+
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0].title, 'Anon');
+  assert.equal(offers[0].details.hotelId, null); // both hotel_id and property.id missing
+  assert.equal(offers[0].details.stars, null);   // no property class
+  assert.equal(offers[0].score, null);           // no review score and no stars
+});
+
+test('BookingComProvider falls back to a generic reason when an error carries no message', async () => {
+  const fetchImpl = bookingFetch({ hotels: { status: false } });
+  await assert.rejects(
+    new BookingComProvider({ apiKey: 'k', fetchImpl }).search('hotels', { city: 'Las Vegas' }),
+    /Booking\.com error: request rejected/
+  );
 });

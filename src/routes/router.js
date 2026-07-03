@@ -45,44 +45,49 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   }
 
   const url = new URL(req.url, `http://${req.headers.host}`);
-  logger?.info('Request started', { requestId: context.requestId, method: req.method, path: url.pathname });
+  // Normalize a single trailing slash (e.g. /v1/flights/search/) so a common
+  // copy-paste typo resolves to the real route instead of a 404.
+  const pathname = url.pathname.length > 1 && url.pathname.endsWith('/')
+    ? url.pathname.slice(0, -1)
+    : url.pathname;
+  logger?.info('Request started', { requestId: context.requestId, method: req.method, path: pathname });
 
   // Discovery: a root index so the first request a developer makes is useful.
-  if (url.pathname === '/' || url.pathname === '') {
+  if (pathname === '/' || pathname === '') {
     res.setHeader('cache-control', 'public, max-age=300');
     return ok(200, serviceIndex(brand));
   }
 
-  if (url.pathname === '/health') {
+  if (pathname === '/health') {
     return ok(200, { ok: true, brand: brand.name });
   }
 
-  if (openapiPaths.has(url.pathname)) {
-    if (!openapiSpec) return fail(404, 'OpenAPI specification is not available', { path: url.pathname });
+  if (openapiPaths.has(pathname)) {
+    if (!openapiSpec) return fail(404, 'OpenAPI specification is not available', { path: pathname });
     res.setHeader('cache-control', 'public, max-age=300');
     return sendText(res, 200, openapiSpec, 'application/yaml', context, logger);
   }
 
-  const authConfig = protectedPaths.has(url.pathname)
+  const authConfig = protectedPaths.has(pathname)
     ? { ...config, requireApiKey: config.requireApiKey || config.apiKeys.length > 0 }
     : config;
   const auth = authenticate(req, authConfig);
-  if ((authConfig.requireApiKey || protectedPaths.has(url.pathname)) && !auth.ok) {
+  if ((authConfig.requireApiKey || protectedPaths.has(pathname)) && !auth.ok) {
     return fail(auth.statusCode, auth.message);
   }
 
-  if (url.pathname === '/ready') {
+  if (pathname === '/ready') {
     const readiness = engine.readiness();
     return ok(readiness.ok ? 200 : 503, readiness);
   }
 
-  if (url.pathname === '/metrics') {
+  if (pathname === '/metrics') {
     return ok(200, engine.metricsSnapshot());
   }
 
-  const type = routeMap.get(url.pathname);
+  const type = routeMap.get(pathname);
   if (!type) {
-    return fail(404, 'Route not found', { path: url.pathname, availableRoutes: advertisedRoutes });
+    return fail(404, 'Route not found', { path: pathname, availableRoutes: advertisedRoutes });
   }
 
   try {
@@ -103,7 +108,14 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   }
 }
 
-function serviceIndex(brand) {
+function serviceIndex(brand, now = Date.now()) {
+  // Example dates are always in the near future so a copy-paste of the discovery
+  // response is a valid request (past dates are rejected by validation).
+  const isoDate = (daysAhead) => new Date(now + daysAhead * 86400000).toISOString().slice(0, 10);
+  const depart = isoDate(30);
+  const checkin = isoDate(30);
+  const checkout = isoDate(33);
+  const carDate = isoDate(30);
   return {
     service: brand.name,
     acronym: brand.acronym,
@@ -114,16 +126,16 @@ function serviceIndex(brand) {
       health: '/health',
       readiness: '/ready',
       metrics: '/metrics',
-      flights: '/v1/flights/search?from=LAX&to=JFK&date=2026-07-01',
-      hotels: '/v1/hotels/search?city=Las%20Vegas&checkin=2026-07-01&checkout=2026-07-05',
-      cars: '/v1/cars/search?city=Miami&date=2026-07-01',
+      flights: `/v1/flights/search?from=LAX&to=JFK&date=${depart}`,
+      hotels: `/v1/hotels/search?city=Las%20Vegas&checkin=${checkin}&checkout=${checkout}`,
+      cars: `/v1/cars/search?city=Miami&date=${carDate}`,
       airport: '/v1/airport/info?code=LAX',
       tracking: '/v1/flights/live?icao24=4b1814'
     }
   };
 }
 
-function clientIp(req) {
+export function clientIp(req) {
   const forwarded = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
   return forwarded || req.socket?.remoteAddress || 'unknown';
 }

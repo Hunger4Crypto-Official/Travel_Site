@@ -89,6 +89,13 @@ test('CurrencyConverter returns null when a rate is missing or amount invalid', 
   assert.equal(empty.convert(100, 'EUR', 'USD'), null);
 });
 
+test('CurrencyConverter defaults its clock and defaults from/to to the base currency', () => {
+  // No `now` option -> the default clock is installed.
+  const converter = new CurrencyConverter({ base: 'USD', rates: { EUR: 0.5 } });
+  // Omitting from/to makes both sides the base currency, so the amount is unchanged.
+  assert.equal(converter.convert(100), 100);
+});
+
 test('CurrencyConverter fetches and caches rates with a TTL', async () => {
   let clock = 0;
   const fetchImpl = stubFetch(jsonResponse({ base: 'USD', rates: { EUR: 0.5 } }));

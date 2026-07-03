@@ -36,14 +36,14 @@ function describe(offer) {
   const price = offer.price?.total ?? offer.price?.amount;
   const money = price ? `${price} ${offer.price?.currency || ''}` : 'n/a';
   const estimate = offer.price?.estimated ? ' (estimated)' : '';
-  return `${money}${estimate} — ${offer.title || offer.id}`;
+  return `${money}${estimate} - ${offer.title || offer.id}`;
 }
 
 async function run() {
   const config = loadConfig();
   const providers = createProviders(config);
 
-  console.log(`Live smoke test — ${providers.length} provider(s) registered\n`);
+  console.log(`Live smoke test: ${providers.length} provider(s) registered\n`);
 
   for (const provider of providers) {
     const ready = provider.ready;
@@ -56,7 +56,7 @@ async function run() {
       const label = `• ${provider.name} [${type}]`;
       try {
         const offers = await provider.search(type, sampleQueries[type]);
-        console.log(`${label}: OK ${offers.length} offer(s) — ${describe(offers[0])}`);
+        console.log(`${label}: OK ${offers.length} offer(s), ${describe(offers[0])}`);
       } catch (err) {
         console.log(`${label}: ERROR ${err.message}`);
       }

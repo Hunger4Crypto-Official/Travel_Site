@@ -47,7 +47,7 @@ placeholder data can never win a real race. Cross-currency comparison requires
 Because provider responses are only as trustworthy as the mapping, every mapper is checked two ways:
 
 - **Contract tests** (`test/contract.test.js`) run each mapper against a recorded, real-shaped API
-  response in `test/fixtures/` — the offline proof that field mappings are correct.
+  response in `test/fixtures/`. This is the offline proof that field mappings are correct.
 - **Live smoke** (`npm run smoke:live`) hits each configured provider once against the real API and
   prints the normalized result, so a mapping is proven end-to-end the moment credentials and network
   egress are available. Unconfigured or unreachable providers are reported and skipped.
@@ -113,7 +113,7 @@ request returns `429` with a `Retry-After` header; `405` responses include an `A
 ```
 
 `count` is the number of offers returned (after any `limit`); `total` is how many matched before
-limiting. `message` appears only when nothing matched. Every response — success or error — carries
+limiting. `message` appears only when nothing matched. Every response (success or error) carries
 `meta.requestId` and `meta.version`. Error responses use `{ "status": "error", "error": { message,
 statusCode, details }, "meta": { requestId, version } }`.
 
@@ -185,7 +185,7 @@ npm start
 
 The server defaults to `http://localhost:3000`. A `.env` file next to `server.js` is loaded
 automatically (real environment variables always take precedence); with no keys set, the engine
-runs on the demo + no-key providers. Add credentials to `.env` and restart — the matching real
+runs on the demo + no-key providers. Add credentials to `.env` and restart; the matching real
 providers register themselves and the demo stops serving those verticals.
 
 ## Test
@@ -211,16 +211,16 @@ npm run smoke:live  # hit configured real providers once (needs keys + egress)
 The codebase has been through a multi-lens red-team audit (SSRF/injection, auth/secrets,
 DoS/resource-exhaustion, error-leakage, correctness). Notable protections:
 
-- **Per-client rate limiting** — each authenticated principal (or client IP) gets its own token
+- **Per-client rate limiting**: each authenticated principal (or client IP) gets its own token
   bucket, so one abusive caller can't exhaust everyone's quota. Tracked keys are LRU-bounded.
-- **Streaming response cap** — the shared HTTP client rejects oversized upstream bodies via
+- **Streaming response cap**: the shared HTTP client rejects oversized upstream bodies via
   `Content-Length` and incremental streaming, so a hostile provider can't OOM the process.
-- **No secret leakage** — the authenticated principal is a one-way SHA-256 fingerprint (never key
+- **No secret leakage**: the authenticated principal is a one-way SHA-256 fingerprint (never key
   characters); logs redact `key|token|secret|password|authorization|signature|bearer|credential`
   fields; 5xx responses expose only `Unexpected error` with no internal details.
-- **Bounded input** — every query parameter is length-capped and the parameter count is limited,
+- **Bounded input**: every query parameter is length-capped and the parameter count is limited,
   keeping the request, cache key, and downstream serialization bounded.
-- **Failure isolation** — per-provider timeouts + circuit breaker; a slow/failed provider is
+- **Failure isolation**: per-provider timeouts + circuit breaker; a slow/failed provider is
   reported as `error` and never blocks the rest of the response.
 
 Two items are deployment choices rather than code defects:

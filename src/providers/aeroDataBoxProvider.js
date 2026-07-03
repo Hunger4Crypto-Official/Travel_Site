@@ -67,7 +67,7 @@ export class AeroDataBoxProvider extends BaseProvider {
       provider: this.name,
       id: `airport-${airport.iata || airport.icao}`,
       price: 0,
-      title: `${airport.fullName || airport.name} (${airport.iata || '—'}/${airport.icao || '—'})`,
+      title: `${airport.fullName || airport.name} (${airport.iata || '?'}/${airport.icao || '?'})`,
       affiliateId: this.affiliateId,
       details: {
         iata: airport.iata ?? null,

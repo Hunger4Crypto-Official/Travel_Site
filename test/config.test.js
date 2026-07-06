@@ -35,6 +35,12 @@ test('loadConfig applies safe defaults with an empty environment', () => {
   assert.equal(config.priceHistoryEnabled, true);
   assert.equal(config.priceHistoryFile, null);
   assert.equal(config.priceHistoryMaxEntries, 5000);
+
+  assert.equal(config.alertsEnabled, true);
+  assert.equal(config.alertsFile, null);
+  assert.equal(config.alertsMaxEntries, 1000);
+  assert.equal(config.alertsCheckIntervalMs, 300000);
+  assert.equal(config.alertsWebhooksEnabled, false);
 });
 
 test('loadConfig honors every override and the shared RapidAPI fallback', () => {
@@ -63,7 +69,12 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
     BASE_CURRENCY: 'eur',
     PRICE_HISTORY_ENABLED: 'false',
     PRICE_HISTORY_FILE: '/tmp/history.jsonl',
-    PRICE_HISTORY_MAX_ENTRIES: '9'
+    PRICE_HISTORY_MAX_ENTRIES: '9',
+    ALERTS_ENABLED: 'false',
+    ALERTS_FILE: '/tmp/alerts.jsonl',
+    ALERTS_MAX_ENTRIES: '50',
+    ALERTS_CHECK_INTERVAL_MS: '1000',
+    ALERTS_WEBHOOKS_ENABLED: 'true'
   });
 
   assert.equal(config.nodeEnv, 'production');
@@ -94,6 +105,12 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
   assert.equal(config.priceHistoryEnabled, false);
   assert.equal(config.priceHistoryFile, '/tmp/history.jsonl');
   assert.equal(config.priceHistoryMaxEntries, 9);
+
+  assert.equal(config.alertsEnabled, false);
+  assert.equal(config.alertsFile, '/tmp/alerts.jsonl');
+  assert.equal(config.alertsMaxEntries, 50);
+  assert.equal(config.alertsCheckIntervalMs, 1000);
+  assert.equal(config.alertsWebhooksEnabled, true);
 });
 
 test('loadConfig auth flag: explicit REQUIRE_API_KEY and production-without-keys', () => {

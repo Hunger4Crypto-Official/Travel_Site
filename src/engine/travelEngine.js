@@ -23,6 +23,8 @@ export class TravelEngine {
     currencyConverter = null,
     baseCurrency = null,
     priceHistory = null,
+    alertStore = null,
+    notifier = null,
     logger = null
   } = {}) {
     this.providers = providers;
@@ -34,6 +36,8 @@ export class TravelEngine {
     this.currencyConverter = currencyConverter;
     this.baseCurrency = baseCurrency ? baseCurrency.toUpperCase() : null;
     this.priceHistory = priceHistory;
+    this.alertStore = alertStore;
+    this.notifier = notifier;
     this.logger = logger;
   }
 
@@ -251,6 +255,76 @@ export class TravelEngine {
     };
   }
 
+  // ---- price alerts / saved searches ----------------------------------------
+  // A watch is a saved search; with a threshold it is a price alert. Watches are
+  // owner-scoped by the authenticated principal (or 'anonymous' in keyless dev).
+
+  createAlert(type, input = {}, context = {}) {
+    if (!this.alertStore) throw httpError(404, 'Alerts are not enabled', { setting: 'ALERTS_ENABLED' });
+    if (!['flights', 'hotels', 'cars'].includes(type)) {
+      throw httpError(400, 'Invalid type. Expected one of: flights, hotels, cars', { field: 'type', allowed: ['flights', 'hotels', 'cars'] });
+    }
+    const validated = validateQuery(type, input, { maxQueryLength: this.maxQueryLength });
+    // validateQuery guarantees the fields priceHistoryKey needs for these types,
+    // so the key is always resolvable here.
+    const key = priceHistoryKey(type, validated);
+    const threshold = parseThreshold(input.threshold);
+    const watch = this.alertStore.create({
+      owner: ownerOf(context),
+      type,
+      query: validated,
+      key,
+      threshold,
+      currency: input.currency ? String(input.currency).toUpperCase() : (this.baseCurrency || null),
+      notifyUrl: input.notifyUrl ? String(input.notifyUrl) : null
+    });
+    return publicAlert(watch);
+  }
+
+  listAlerts(context = {}) {
+    if (!this.alertStore) throw httpError(404, 'Alerts are not enabled', { setting: 'ALERTS_ENABLED' });
+    const alerts = this.alertStore.list(ownerOf(context)).map(publicAlert);
+    return { alerts, count: alerts.length };
+  }
+
+  deleteAlert(id, context = {}) {
+    if (!this.alertStore) throw httpError(404, 'Alerts are not enabled', { setting: 'ALERTS_ENABLED' });
+    if (!id) throw httpError(400, 'An alert id is required', { field: 'id' });
+    if (!this.alertStore.remove(id, ownerOf(context))) throw httpError(404, 'Alert not found', { id });
+    return { deleted: true, id };
+  }
+
+  // Background sweep: re-run each active watch's search (cache-shared, no rate
+  // limit), record the price, and fire a notification the first time the price
+  // crosses at/below the threshold. A watch whose query is no longer valid (e.g.
+  // its date has passed) is deactivated instead of crashing the sweep.
+  async checkAlerts() {
+    if (!this.alertStore) return { checked: 0, triggered: 0 };
+    const watches = this.alertStore.activeWatches();
+    let triggered = 0;
+    for (const watch of watches) {
+      try {
+        const validated = validateQuery(watch.type, watch.query, { maxQueryLength: this.maxQueryLength });
+        const result = await this.runCached(watch.type, validated);
+        const total = result.cheapest ? result.cheapest.price.total : null;
+        const patch = { lastCheckedAt: Date.now(), lastPrice: total };
+        const below = total !== null && watch.threshold !== null && total <= watch.threshold;
+        if (below && !watch.triggered) {
+          patch.triggered = true;
+          patch.lastTriggeredAt = Date.now();
+          triggered += 1;
+          if (this.notifier) this.notifier.notify(watch.notifyUrl, alertPayload(watch, total, result)).catch(() => {});
+        } else if (!below && watch.triggered) {
+          patch.triggered = false; // reset so it can fire again on the next drop
+        }
+        this.alertStore.update(watch.id, patch);
+      } catch (err) {
+        this.alertStore.update(watch.id, { active: false, lastCheckedAt: Date.now(), lastError: err.message });
+      }
+    }
+    return { checked: watches.length, triggered };
+  }
+
   // Convert every offer's price into the configured base currency so that
   // ranking-by-price compares like for like across providers. On any failure
   // the original prices are kept unchanged.
@@ -341,6 +415,52 @@ function httpError(statusCode, message, details) {
   err.statusCode = statusCode;
   err.details = details;
   return err;
+}
+
+function ownerOf(context) {
+  return context.principal || 'anonymous';
+}
+
+function parseThreshold(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) {
+    throw httpError(400, 'Invalid threshold. Expected a non-negative number', { field: 'threshold' });
+  }
+  return n;
+}
+
+// Public projection of a watch: the notify URL is never echoed back (only
+// whether one is configured), so a webhook target cannot leak via list/get.
+function publicAlert(watch) {
+  return {
+    id: watch.id,
+    type: watch.type,
+    query: watch.query,
+    key: watch.key,
+    threshold: watch.threshold,
+    currency: watch.currency,
+    active: watch.active,
+    createdAt: watch.createdAt,
+    lastPrice: watch.lastPrice,
+    triggered: watch.triggered,
+    lastTriggeredAt: watch.lastTriggeredAt,
+    lastCheckedAt: watch.lastCheckedAt,
+    notifyConfigured: Boolean(watch.notifyUrl)
+  };
+}
+
+function alertPayload(watch, total, result) {
+  return {
+    event: 'price_alert',
+    alertId: watch.id,
+    type: watch.type,
+    query: watch.query,
+    threshold: watch.threshold,
+    price: total,
+    currency: result.currency,
+    cheapest: result.cheapest
+  };
 }
 
 function clampLimit(value) {

@@ -9,6 +9,7 @@ import { stableCacheKey, validateQuery } from '../src/engine/queryValidation.js'
 import { MemoryCache } from '../src/utils/cache.js';
 import { CurrencyConverter } from '../src/utils/currency.js';
 import { PriceHistoryStore } from '../src/utils/priceHistory.js';
+import { AlertStore } from '../src/utils/alertStore.js';
 import { TokenBucketRateLimiter, KeyedRateLimiter } from '../src/utils/rateLimit.js';
 
 class ThrowingProvider extends BaseProvider {
@@ -519,6 +520,140 @@ test('flexibleSearch reports when no date in the window has a priced offer', asy
   const result = await engine.flexibleSearch('flights', { from: 'LAX', to: 'JFK', date: isoIn(15) }, {}, { flexDays: 2 });
   assert.equal(result.cheapestDate, null);
   assert.match(result.message, /No priced offers/);
+});
+
+// ---- price alerts / saved searches ------------------------------------------
+
+function alertEngine(providers, { notifier, baseCurrency } = {}) {
+  let n = 0;
+  const store = new AlertStore({ now: () => 1000, idFactory: () => `a${(n += 1)}` });
+  const engine = new TravelEngine({ providers, alertStore: store, notifier, baseCurrency, cache: new MemoryCache({ maxEntries: 0 }) });
+  return { engine, store };
+}
+
+test('createAlert stores an owner-scoped watch and never echoes the notify URL', () => {
+  const { engine } = alertEngine([new MockProvider({ name: 'demo' })]);
+  const alert = engine.createAlert('flights', { from: 'LAX', to: 'JFK', date: isoIn(30), threshold: '250', notifyUrl: 'https://hooks.example/x' }, { principal: 'api-key:abc' });
+
+  assert.equal(alert.id, 'a1');
+  assert.equal(alert.type, 'flights');
+  assert.equal(alert.key, 'LAX-JFK');
+  assert.equal(alert.threshold, 250);
+  assert.equal(alert.triggered, false);
+  assert.equal(alert.notifyConfigured, true);
+  assert.equal(alert.notifyUrl, undefined); // the webhook URL is never returned
+});
+
+test('createAlert resolves the alert currency from input, base currency, or null', () => {
+  // Explicit input currency wins.
+  const a = alertEngine([new MockProvider({ name: 'demo' })]);
+  assert.equal(a.engine.createAlert('flights', { from: 'LAX', to: 'JFK', date: isoIn(30), currency: 'eur' }, {}).currency, 'EUR');
+
+  // Else the engine's base currency.
+  const b = alertEngine([new MockProvider({ name: 'demo' })], { baseCurrency: 'GBP' });
+  assert.equal(b.engine.createAlert('flights', { from: 'LAX', to: 'JFK', date: isoIn(30) }, {}).currency, 'GBP');
+
+  // Else null (no input currency, no base currency, empty principal -> anonymous owner).
+  const c = alertEngine([new MockProvider({ name: 'demo' })]);
+  const anon = c.engine.createAlert('flights', { from: 'LAX', to: 'JFK', date: isoIn(30) }, {});
+  assert.equal(anon.currency, null);
+  assert.equal(c.engine.listAlerts({}).alerts[0].id, anon.id); // owned by 'anonymous'
+});
+
+test('createAlert validates enablement, type, watchability, and threshold', () => {
+  const { engine } = alertEngine([new MockProvider({ name: 'demo' })]);
+  assert.throws(() => engine.createAlert('cruises', {}, {}), (e) => e.statusCode === 400 && /Invalid type/.test(e.message));
+  assert.throws(() => engine.createAlert('flights', { from: 'LAX' }, {}), /Missing required query parameter/);
+  assert.throws(() => engine.createAlert('flights', { from: 'LAX', to: 'JFK', date: isoIn(30), threshold: '-5' }, {}), (e) => e.statusCode === 400 && /threshold/.test(e.message));
+
+  const noStore = new TravelEngine({ providers: [] });
+  assert.throws(() => noStore.createAlert('flights', { from: 'LAX', to: 'JFK' }, {}), (e) => e.statusCode === 404);
+  assert.throws(() => noStore.listAlerts({}), (e) => e.statusCode === 404);
+  assert.throws(() => noStore.deleteAlert('x', {}), (e) => e.statusCode === 404);
+});
+
+test('listAlerts and deleteAlert are scoped to the owner', () => {
+  const { engine } = alertEngine([new MockProvider({ name: 'demo' })]);
+  const mine = engine.createAlert('flights', { from: 'LAX', to: 'JFK', date: isoIn(30) }, { principal: 'me' });
+  engine.createAlert('flights', { from: 'SFO', to: 'JFK', date: isoIn(30) }, { principal: 'other' });
+
+  assert.equal(engine.listAlerts({ principal: 'me' }).count, 1);
+  assert.equal(engine.listAlerts({ principal: 'me' }).alerts[0].id, mine.id);
+
+  // Another owner cannot delete my alert.
+  assert.throws(() => engine.deleteAlert(mine.id, { principal: 'other' }), (e) => e.statusCode === 404);
+  assert.throws(() => engine.deleteAlert('', { principal: 'me' }), (e) => e.statusCode === 400);
+  assert.deepEqual(engine.deleteAlert(mine.id, { principal: 'me' }), { deleted: true, id: mine.id });
+  assert.equal(engine.listAlerts({ principal: 'me' }).count, 0);
+});
+
+test('checkAlerts records prices, fires once on crossing the threshold, and notifies', async () => {
+  const notifyCalls = [];
+  const notifier = { notify: (url, payload) => { notifyCalls.push([url, payload]); return Promise.resolve({ delivered: true }); } };
+  const { engine, store } = alertEngine([
+    new FixedPriceProvider('cheap', [{ id: 'c1', type: 'flights', price: { amount: 200, total: 200, currency: 'USD' }, freshness: 'live' }])
+  ], { notifier });
+  const alert = engine.createAlert('flights', { from: 'LAX', to: 'JFK', date: isoIn(30), threshold: 250, notifyUrl: 'https://hooks.example/x' }, { principal: 'me' });
+
+  const first = await engine.checkAlerts();
+  assert.deepEqual(first, { checked: 1, triggered: 1 });
+  assert.equal(store.get(alert.id).lastPrice, 200);
+  assert.equal(store.get(alert.id).triggered, true);
+  assert.equal(notifyCalls.length, 1);
+  assert.equal(notifyCalls[0][0], 'https://hooks.example/x');
+  assert.equal(notifyCalls[0][1].price, 200);
+
+  // Still below on the next sweep, but already triggered -> no second notify.
+  const second = await engine.checkAlerts();
+  assert.equal(second.triggered, 0);
+  assert.equal(notifyCalls.length, 1);
+});
+
+test('checkAlerts swallows a notifier rejection without failing the sweep', async () => {
+  const notifier = { notify: () => Promise.reject(new Error('webhook down')) };
+  const { engine } = alertEngine([
+    new FixedPriceProvider('cheap', [{ id: 'c1', type: 'flights', price: { amount: 100, total: 100, currency: 'USD' }, freshness: 'live' }])
+  ], { notifier });
+  engine.createAlert('flights', { from: 'LAX', to: 'JFK', date: isoIn(30), threshold: 200, notifyUrl: 'https://hooks.example/x' }, { principal: 'me' });
+
+  const summary = await engine.checkAlerts();
+  assert.deepEqual(summary, { checked: 1, triggered: 1 }); // sweep succeeds despite the failed webhook
+  await new Promise((resolve) => setTimeout(resolve, 0)); // let the swallowed rejection settle
+});
+
+test('checkAlerts resets a triggered watch once the price climbs back above the threshold', async () => {
+  const { engine, store } = alertEngine([
+    new FixedPriceProvider('pricey', [{ id: 'p1', type: 'flights', price: { amount: 400, total: 400, currency: 'USD' }, freshness: 'live' }])
+  ]);
+  const alert = engine.createAlert('flights', { from: 'LAX', to: 'JFK', date: isoIn(30), threshold: 300 }, { principal: 'me' });
+  store.update(alert.id, { triggered: true }); // pretend it fired earlier
+  await engine.checkAlerts();
+  assert.equal(store.get(alert.id).triggered, false); // 400 > 300 -> reset so it can fire again
+});
+
+test('checkAlerts records a null price when a watch yields no offers', async () => {
+  // AirportInfoProvider does not serve flights, so the flight search finds nothing.
+  const { engine, store } = alertEngine([new AirportInfoProvider()]);
+  const alert = engine.createAlert('flights', { from: 'LAX', to: 'JFK', date: isoIn(30), threshold: 250 }, { principal: 'me' });
+  const summary = await engine.checkAlerts();
+  assert.equal(summary.triggered, 0);
+  assert.equal(store.get(alert.id).lastPrice, null); // no cheapest -> null, never a false trigger
+  assert.equal(store.get(alert.id).triggered, false);
+});
+
+test('checkAlerts deactivates a watch whose query is no longer valid, without crashing', async () => {
+  const { engine, store } = alertEngine([new MockProvider({ name: 'demo' })]);
+  // Insert a watch with a now-past date directly (createAlert would reject it).
+  const watch = store.create({ owner: 'me', type: 'flights', query: { from: 'LAX', to: 'JFK', date: '2020-01-01' }, key: 'LAX-JFK', threshold: 100 });
+  const summary = await engine.checkAlerts();
+  assert.equal(summary.checked, 1);
+  assert.equal(store.get(watch.id).active, false);
+  assert.match(store.get(watch.id).lastError, /past/);
+});
+
+test('checkAlerts is a no-op without a store', async () => {
+  const engine = new TravelEngine({ providers: [] });
+  assert.deepEqual(await engine.checkAlerts(), { checked: 0, triggered: 0 });
 });
 
 test('priceHistorySnapshot validates type and required params, and 404s when disabled', () => {

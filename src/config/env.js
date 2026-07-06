@@ -9,7 +9,9 @@ const integerSettings = [
   ['PROVIDER_COOLDOWN_MS', 30000],
   ['MAX_QUERY_LENGTH', 120],
   ['CURRENCY_TTL_MS', 3600000],
-  ['PRICE_HISTORY_MAX_ENTRIES', 5000]
+  ['PRICE_HISTORY_MAX_ENTRIES', 5000],
+  ['ALERTS_MAX_ENTRIES', 1000],
+  ['ALERTS_CHECK_INTERVAL_MS', 300000]
 ];
 
 export function loadConfig(env = process.env) {
@@ -62,7 +64,14 @@ export function loadConfig(env = process.env) {
     // Price memory ("vs. recent average" context + /v1/prices/history)
     priceHistoryEnabled: env.PRICE_HISTORY_ENABLED !== 'false',
     priceHistoryFile: env.PRICE_HISTORY_FILE || null,
-    priceHistoryMaxEntries: values.PRICE_HISTORY_MAX_ENTRIES
+    priceHistoryMaxEntries: values.PRICE_HISTORY_MAX_ENTRIES,
+
+    // Price alerts / saved searches (/v1/alerts + background sweep)
+    alertsEnabled: env.ALERTS_ENABLED !== 'false',
+    alertsFile: env.ALERTS_FILE || null,
+    alertsMaxEntries: values.ALERTS_MAX_ENTRIES,
+    alertsCheckIntervalMs: values.ALERTS_CHECK_INTERVAL_MS,
+    alertsWebhooksEnabled: env.ALERTS_WEBHOOKS_ENABLED === 'true'
   };
 }
 

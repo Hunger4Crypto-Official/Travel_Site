@@ -1,5 +1,6 @@
 import { success, error } from '../utils/formatter.js';
 import { authenticate, createRequestContext, responseHeaders } from '../utils/http.js';
+import { readJsonBody } from '../utils/requestBody.js';
 
 const SOURCE = 'the-travel-club';
 
@@ -18,7 +19,7 @@ const routeMap = new Map([
 
 // Versioned routes advertised in discovery responses (the unversioned aliases
 // stay available but are not promoted).
-const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/trust'];
+const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/trust'];
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
@@ -44,10 +45,6 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   );
 
   if (req.method === 'OPTIONS') return sendJson(res, 204, null, context, logger);
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', 'GET, OPTIONS');
-    return fail(405, 'Method not allowed', { allow: ['GET', 'OPTIONS'] });
-  }
 
   const url = new URL(req.url, `http://${req.headers.host}`);
   // Normalize a single trailing slash (e.g. /v1/flights/search/) so a common
@@ -55,6 +52,16 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   const pathname = url.pathname.length > 1 && url.pathname.endsWith('/')
     ? url.pathname.slice(0, -1)
     : url.pathname;
+
+  // The API is GET-only except the alerts collection, which also takes POST
+  // (create) and DELETE (remove).
+  const alertsWrite = pathname === '/v1/alerts' && (req.method === 'POST' || req.method === 'DELETE');
+  if (req.method !== 'GET' && !alertsWrite) {
+    const allow = pathname === '/v1/alerts' ? 'GET, POST, DELETE, OPTIONS' : 'GET, OPTIONS';
+    res.setHeader('Allow', allow);
+    return fail(405, 'Method not allowed', { allow: allow.split(', ') });
+  }
+
   logger?.info('Request started', { requestId: context.requestId, method: req.method, path: pathname });
 
   // Discovery: browsers get the web app at the root, API clients get the JSON
@@ -118,6 +125,18 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
       return ok(200, engine.priceHistorySnapshot(query.type, query), { principal: auth.principal });
     }
 
+    // Price alerts / saved searches (owner-scoped by principal).
+    if (pathname === '/v1/alerts') {
+      if (req.method === 'POST') {
+        const body = await readJsonBody(req);
+        return ok(201, engine.createAlert(body.type, body, { principal: auth.principal }), { principal: auth.principal });
+      }
+      if (req.method === 'DELETE') {
+        return ok(200, engine.deleteAlert(query.id, { principal: auth.principal }), { principal: auth.principal });
+      }
+      return ok(200, engine.listAlerts({ principal: auth.principal }), { principal: auth.principal });
+    }
+
     // Rate-limit per authenticated principal when available, else per client IP.
     const clientKey = auth.principal && auth.principal !== 'anonymous' ? auth.principal : clientIp(req);
 
@@ -171,6 +190,7 @@ function serviceIndex(brand, now = Date.now()) {
       hotels: `/v1/hotels/search?city=Las%20Vegas&checkin=${checkin}&checkout=${checkout}`,
       cars: `/v1/cars/search?city=Miami&date=${carDate}`,
       priceHistory: '/v1/prices/history?type=flights&from=LAX&to=JFK',
+      alerts: '/v1/alerts',
       airport: '/v1/airport/info?code=LAX',
       tracking: '/v1/flights/live?icao24=4b1814'
     }

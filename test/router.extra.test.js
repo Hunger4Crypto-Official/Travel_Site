@@ -14,7 +14,10 @@ function fakeEngine(overrides = {}) {
     flexibleSearch: overrides.flexibleSearch || (async () => ({ type: 'flights', calendar: [], cheapestDate: null })),
     readiness: overrides.readiness || (() => ({ ok: true, providers: [] })),
     metricsSnapshot: overrides.metricsSnapshot || (() => ({ counters: {}, timings: {} })),
-    priceHistorySnapshot: overrides.priceHistorySnapshot || (() => ({ type: 'flights', key: 'LAX-JFK', samples: 0 }))
+    priceHistorySnapshot: overrides.priceHistorySnapshot || (() => ({ type: 'flights', key: 'LAX-JFK', samples: 0 })),
+    createAlert: overrides.createAlert || ((type, body) => ({ id: 'a1', type, threshold: body.threshold ?? null })),
+    listAlerts: overrides.listAlerts || (() => ({ alerts: [], count: 0 })),
+    deleteAlert: overrides.deleteAlert || ((id) => ({ deleted: true, id }))
   };
 }
 
@@ -216,6 +219,65 @@ test('/v1/flights/calendar proxies flexibleSearch with the flex parameter', asyn
     assert.equal(res.status, 200);
     assert.equal(body.data.cheapestDate, '2027-05-01');
     assert.deepEqual(seen[0], ['flights', 'LAX', '2']);
+  });
+});
+
+test('POST /v1/alerts parses the JSON body and creates an alert (201)', async () => {
+  const seen = [];
+  const engine = fakeEngine({ createAlert: (type, body, ctx) => { seen.push([type, body.threshold, ctx.principal]); return { id: 'a1', type, threshold: body.threshold }; } });
+  await withServer(openConfig, engine, async (base) => {
+    const res = await fetch(`${base}/v1/alerts`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'flights', from: 'LAX', to: 'JFK', date: '2027-05-01', threshold: 250 })
+    });
+    const body = await res.json();
+    assert.equal(res.status, 201);
+    assert.equal(body.data.id, 'a1');
+    assert.deepEqual(seen[0], ['flights', 250, 'anonymous']);
+  });
+});
+
+test('GET /v1/alerts lists and DELETE /v1/alerts?id= removes', async () => {
+  const removed = [];
+  const engine = fakeEngine({
+    listAlerts: () => ({ alerts: [{ id: 'a1' }], count: 1 }),
+    deleteAlert: (id) => { removed.push(id); return { deleted: true, id }; }
+  });
+  await withServer(openConfig, engine, async (base) => {
+    const list = await (await fetch(`${base}/v1/alerts`)).json();
+    assert.equal(list.data.count, 1);
+
+    const del = await fetch(`${base}/v1/alerts?id=a1`, { method: 'DELETE' });
+    assert.equal(del.status, 200);
+    assert.equal((await del.json()).data.deleted, true);
+    assert.deepEqual(removed, ['a1']);
+  });
+});
+
+test('POST /v1/alerts rejects a malformed JSON body with 400', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const res = await fetch(`${base}/v1/alerts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'not json' });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error.message, /valid JSON/);
+  });
+});
+
+test('405 Allow header reflects the methods each route accepts', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const alertsPut = await fetch(`${base}/v1/alerts`, { method: 'PUT' });
+    assert.equal(alertsPut.status, 405);
+    assert.equal(alertsPut.headers.get('allow'), 'GET, POST, DELETE, OPTIONS');
+
+    const searchPost = await fetch(`${base}/v1/flights/search`, { method: 'POST' });
+    assert.equal(searchPost.status, 405);
+    assert.equal(searchPost.headers.get('allow'), 'GET, OPTIONS');
+  });
+});
+
+test('unknown-route 404s advertise the alerts endpoint', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const body = await (await fetch(`${base}/nope`)).json();
+    assert.ok(body.error.details.availableRoutes.includes('/v1/alerts'));
   });
 });
 

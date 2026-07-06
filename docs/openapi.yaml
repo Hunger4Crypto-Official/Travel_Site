@@ -218,6 +218,46 @@ paths:
         '200': { description: Samples, average, lowest, latest, and a recent series. }
         '400': { description: Invalid or missing parameters. }
         '404': { description: Price history is disabled. }
+  /v1/alerts:
+    get:
+      summary: List the caller's price alerts / saved searches (owner-scoped by API key).
+      responses:
+        '200': { description: The caller's watches. }
+    post:
+      summary: Create a price alert / saved search. A watch with a threshold notifies when the cheapest total drops to it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string, enum: [flights, hotels, cars] }
+                from: { type: string, description: 'Flights origin code.' }
+                to: { type: string, description: 'Flights destination code.' }
+                date: { type: string, format: date }
+                city: { type: string, description: 'Hotels/cars city.' }
+                checkin: { type: string, format: date }
+                checkout: { type: string, format: date }
+                threshold: { type: number, minimum: 0, description: 'Notify when the cheapest total is at or below this. Omit for a plain saved search.' }
+                currency: { type: string }
+                notifyUrl: { type: string, description: 'Optional webhook URL (delivery is off unless ALERTS_WEBHOOKS_ENABLED; SSRF-guarded). Never echoed back.' }
+      responses:
+        '201': { description: The created watch (the notify URL is never returned; only notifyConfigured). }
+        '400': { description: Invalid body or query. }
+        '404': { description: Alerts are disabled. }
+    delete:
+      summary: Delete one of the caller's alerts by id.
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Deleted. }
+        '400': { description: Missing id. }
+        '404': { description: Alert not found (or not owned by the caller). }
   /v1/airport/info:
     get:
       summary: Look up airport information.

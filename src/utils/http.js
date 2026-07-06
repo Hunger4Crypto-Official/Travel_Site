@@ -9,7 +9,7 @@ export function createRequestContext(req) {
 
 export function responseHeaders({ requestId, origin, allowedOrigins = [] }) {
   const headers = {
-    'access-control-allow-methods': 'GET, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
     'access-control-allow-headers': 'content-type, x-request-id, x-api-key, authorization',
     'cache-control': 'no-store',
     'content-security-policy': "default-src 'none'; frame-ancestors 'none'",

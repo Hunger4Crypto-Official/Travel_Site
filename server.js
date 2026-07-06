@@ -13,6 +13,8 @@ import { MetricsRegistry } from './src/observability/metrics.js';
 import { ProviderCircuitBreaker } from './src/engine/providerCircuitBreaker.js';
 import { CurrencyConverter } from './src/utils/currency.js';
 import { PriceHistoryStore } from './src/utils/priceHistory.js';
+import { AlertStore } from './src/utils/alertStore.js';
+import { createNotifier } from './src/utils/notifier.js';
 
 loadDotEnv({ path: new URL('./.env', import.meta.url).pathname });
 const config = loadConfig();
@@ -23,6 +25,10 @@ const currencyConverter = config.currencyConversionEnabled
 const priceHistory = config.priceHistoryEnabled
   ? new PriceHistoryStore({ filePath: config.priceHistoryFile, maxEntries: config.priceHistoryMaxEntries })
   : null;
+const alertStore = config.alertsEnabled
+  ? new AlertStore({ filePath: config.alertsFile, maxEntries: config.alertsMaxEntries })
+  : null;
+const notifier = createNotifier({ enabled: config.alertsWebhooksEnabled, logger });
 const engine = new TravelEngine({
   providers: createProviders(config),
   cache: new MemoryCache({ ttlMs: config.cacheTtlMs, maxEntries: config.cacheMaxEntries }),
@@ -33,6 +39,8 @@ const engine = new TravelEngine({
   currencyConverter,
   baseCurrency: config.currencyConversionEnabled ? config.baseCurrency : null,
   priceHistory,
+  alertStore,
+  notifier,
   logger
 });
 
@@ -47,6 +55,18 @@ const server = createServer((req, res) => handleRequest(req, res, { engine, bran
 server.listen(config.port, () => {
   logger.info('Server started', { service: brand.name, acronym: brand.acronym, port: config.port, nodeEnv: config.nodeEnv });
 });
+
+// Background price-alert sweep. Unref'd so it never keeps the process alive on
+// its own, and cleared on shutdown.
+let alertTimer = null;
+if (alertStore && config.alertsCheckIntervalMs > 0) {
+  alertTimer = setInterval(() => {
+    engine.checkAlerts()
+      .then((summary) => { if (summary.triggered > 0) logger.info('Alerts triggered', summary); })
+      .catch((err) => logger.warn('Alert sweep failed', { error: err.message }));
+  }, config.alertsCheckIntervalMs);
+  alertTimer.unref?.();
+}
 
 function loadOpenapiSpec(log) {
   try {
@@ -69,6 +89,7 @@ function loadPage(path, log) {
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     logger.info('Shutdown signal received', { signal });
+    if (alertTimer) clearInterval(alertTimer);
     server.close(() => {
       logger.info('Server stopped');
       process.exit(0);

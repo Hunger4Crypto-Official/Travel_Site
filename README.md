@@ -39,6 +39,23 @@ commitments and enforces each one in the API contract:
   average") with a +/-5% band so tiny wobbles read as "near average", not hype. History is queryable
   at `/v1/prices/history` and optionally persists to a JSONL file (`PRICE_HISTORY_FILE`).
 
+## Price alerts and saved searches
+
+A **watch** is a saved search; give it a `threshold` and it becomes a price alert. Watches are
+owner-scoped by the authenticated principal (the API-key fingerprint, or `anonymous` in keyless
+local dev), so callers only see and delete their own. A background sweep (`ALERTS_CHECK_INTERVAL_MS`)
+re-runs each watch cache-shared with normal search, records the price into price memory, and marks
+a watch `triggered` the first time its cheapest total crosses at/below the threshold (resetting when
+it climbs back). Manage them at `/v1/alerts` (`GET` list, `POST` create, `DELETE ?id=`).
+
+- **Webhook delivery is opt-in and off by default.** Set `ALERTS_WEBHOOKS_ENABLED=true` to POST a
+  JSON payload to a watch's `notifyUrl` when it triggers. The target is SSRF-guarded (http/https
+  only; loopback, private, link-local and cloud-metadata IP literals are blocked) and the URL is
+  **never echoed back** in responses (only `notifyConfigured`). Residual caveat: the guard checks URL
+  literals, not DNS resolution, so a public hostname that resolves to a private IP is not fully
+  covered; keep webhooks off unless you trust the operators who create alerts.
+- A watch whose date has passed is deactivated on the next sweep instead of erroring.
+
 ## Lowest-price comparison
 
 For each vertical the engine fans out to every connected provider in parallel, then makes the
@@ -104,6 +121,9 @@ GET /v1/flights/calendar?from=LAX&to=JFK&date=2027-05-01&flex=3   # cheapest pri
 GET /v1/hotels/search?city=Las%20Vegas&cityCode=LAS&checkin=2027-05-01&checkout=2027-05-05
 GET /v1/cars/search?city=Miami&date=2027-05-01
 GET /v1/prices/history?type=flights&from=LAX&to=JFK
+GET    /v1/alerts                                # list your price alerts / saved searches
+POST   /v1/alerts   {"type":"flights","from":"LAX","to":"JFK","date":"2027-05-01","threshold":250}
+DELETE /v1/alerts?id=<id>
 GET /v1/airport/info?code=LAX
 GET /v1/flights/live?icao24=4b1814
 ```

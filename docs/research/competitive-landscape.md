@@ -223,7 +223,90 @@ verified at purchase time — and that frequently don't survive comparison shopp
 
 ## Part 3 — What the best-regarded players do right
 
-<!-- PENDING: praise-side research agent -->
+*Claims tagged **[FACT]** (published policy, guarantee, official stat) or **[SENTIMENT]**
+(review/forum consensus, not independently verified).*
+
+### Costco Travel
+- **All-in, no-surprise pricing**: rental-car quotes include taxes, airport/facility, and concession
+  fees upfront; package pages show total price + included extras before checkout. **[FACT]**
+  ([upgradedpoints](https://upgradedpoints.com/travel/costco-travel-review/))
+- **Free included extras**: free additional driver with Alamo/Enterprise/Avis/Budget; free online
+  cancellation on most car reservations. **[FACT]**
+  ([Costco Travel FAQ](https://www.costcotravel.com/Info/Rental-Cars-FAQs))
+- **Executive 2% reward** applies to travel (up to $1,000/yr back). **[FACT]**
+- Forum consensus: "same price + extra perks" — e.g., identical Disney Cruise price plus a $350 shop
+  card; praised phone support. **[SENTIMENT]** ([theeverymom](https://theeverymom.com/costco-travel/))
+
+### Google Flights
+- **No booking fees; direct handoff** to airline/OTA — Google is not the merchant. **[FACT]**
+  ([Google support](https://support.google.com/travel/answer/9430556))
+- **Price Guarantee**: on badged US-departing itineraries, fare drops >$5 are auto-refunded, up to
+  $500/account/year (badge still rare). **[FACT]**
+- **Pay-to-rank disclaimed**: partners don't pay to appear; ranking not influenced by partner
+  relationships; ~300+ partners compared. **[FACT]**
+  ([Google support](https://support.google.com/travel/answer/7664728?hl=en))
+- Displayed fare ≈ checkout fare is the accuracy benchmark reviewers measure others against. **[SENTIMENT]**
+
+### Going (formerly Scott's Cheap Flights)
+- **One deal pays for the year**: $49/yr Premium (Elite $199), cancel anytime; 40–90%-off alerts.
+  **[FACT]** on pricing; payback claim **[SENTIMENT]**
+  ([CNBC Select](https://www.cnbc.com/select/scotts-cheap-flights-review/))
+- **"Excellent" on Trustpilot** under going.com (legacy scottscheapflights.com listing skews
+  negative — deals gone by send time). **[SENTIMENT]**
+  ([Trustpilot](https://www.trustpilot.com/review/going.com))
+- **Transparent free-vs-paid tiers** make the upgrade decision low-pressure. **[SENTIMENT]**
+
+### Kayak / Skyscanner
+- **Skyscanner "no hidden fees" pledge**: displayed prices include estimated taxes/charges; revenue
+  is referral commission, not user markups. **[FACT]**
+  ([Skyscanner help](https://help.skyscanner.net/hc/en-us/articles/201208841-What-do-you-include-in-the-prices-shown-on-Skyscanner-))
+- **Kayak Price Forecast publishes a confidence level** and measures accuracy daily (~85% per
+  third-party review). **[FACT]** on design; usefulness **[SENTIMENT]**
+  ([Kayak](https://www.kayak.com/price-trend-explanation))
+- Both honestly caveat that results aren't exhaustive and click-through prices can differ. **[FACT]**
+
+### Booking.com
+- **Unmatched inventory**: ~4.4M properties end-2025; most-visited travel site (~560M visits/mo).
+  **[FACT]** ([news.booking.com](https://news.booking.com/fast-facts/))
+- **Free cancellation as a first-class filter** — the repeatedly cited retention driver despite
+  service complaints. **[SENTIMENT]**
+- **Genius loyalty with real, automatic discounts**: 100M+ members; Level 2–3 members are ~30% of
+  actives but >50% of room nights; only properties rated ≥7.5 can join. **[FACT]**
+  ([hospitality.today](https://www.hospitality.today/article/genius-members-drive-over-half-of-booking-com-bookings))
+- **Reviews tied to real bookings**: 70M+, only bookers can review, fake-review detection.
+  **[FACT]** on policy (caveat: verifies the booking, not the stay).
+
+### Hopper (despite the FTC settlement)
+- **4.8/5 from 1M+ App Store ratings** (notably lower ~3.8 on Google Play); praised color-coded
+  price calendar. **[FACT]** on ratings
+- **Price Freeze fills a real gap**: lock a fare for a small fee; Hopper covers rises up to $300.
+  **[FACT]** on terms; satisfaction **[SENTIMENT]**
+- Its "95% accurate predictions" claim is self-reported and unverified; third-party tests found it
+  solid but missing 10–15% of late fare drops. **[UNVERIFIED CLAIM]**
+
+### AAA Travel
+- **Human agents included in membership** (most agencies charge consult fees). **[FACT]**
+  ([AAA](https://www.aaa.com/tripcanvas/article/aaa-travel-agent-can-save-you-time-and-money-CM280))
+- **Member rates below OTAs**: 36+ hotel-brand partnerships, up to 20% off car-rental base rates +
+  free child seat, published best-price guarantee. **[FACT]**
+- One or two trips/year in discounts typically covers the membership; roadside-assistance trust
+  halo with older travelers. **[SENTIMENT]**
+
+### The top 5 trust-building mechanics (ranked by recurrence across the seven)
+
+1. **All-in / what-you-see-is-what-you-pay pricing** (5 of 7) — the single most repeated praise theme.
+2. **Price-drop protection / fare-lock products** (4 of 7) — Google's guarantee, Hopper's freeze,
+   Kayak's confidence-scored forecasts, Going's framed savings.
+3. **No-fee handoff / commission-not-markup model made explicit** (4 of 7) — "we don't mark up, we
+   don't sell ranking" stated as policy.
+4. **Free cancellation as a default, low-friction option** (3 of 7).
+5. **Human support included in the price** (3 of 7).
+
+**Cross-cutting takeaway:** the winners don't necessarily have the lowest price — they remove
+*ambush risk*. Every top-rated player converts a normally hidden cost (taxes, fees, fare
+volatility, cancellation penalties, ranking bias) into an explicit, published commitment. The two
+membership models that work (Costco, AAA) sell trust they already earned elsewhere — they never
+ask you to pre-pay for unverifiable savings.
 
 ---
 

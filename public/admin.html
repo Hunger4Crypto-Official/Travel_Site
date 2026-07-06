@@ -119,6 +119,22 @@
         </form>
         <div id="hxOut" class="viz-wrap"><div class="empty">Query a route to see its recorded price series.</div></div>
       </section>
+
+      <section class="panel">
+        <h2>Price alerts</h2>
+        <p class="sub" id="alertStat">Loading alerts...</p>
+        <form class="hx" id="alForm">
+          <select id="alType" aria-label="Alert vertical"><option value="flights">flights</option><option value="hotels">hotels</option><option value="cars">cars</option></select>
+          <input id="alA" placeholder="from (LAX)" aria-label="From or city">
+          <input id="alB" placeholder="to (JFK)" aria-label="To">
+          <input id="alD1" placeholder="date (2026-08-01)" aria-label="Date or check-in">
+          <input id="alD2" placeholder="checkout" aria-label="Checkout" style="display:none">
+          <input id="alThresh" type="number" min="0" step="1" placeholder="threshold" aria-label="Threshold price">
+          <button type="submit">Create</button>
+        </form>
+        <div class="err" id="alMsg" role="alert"></div>
+        <div id="alerts"><div class="empty">Waiting for first refresh...</div></div>
+      </section>
     </div>
 
     <div>
@@ -145,8 +161,11 @@
   const key = $('#key'); key.value = localStorage.getItem('ttc.adminKey') || '';
   key.addEventListener('change', () => { localStorage.setItem('ttc.adminKey', key.value.trim()); refresh(); });
   const headers = () => key.value.trim() ? { 'x-api-key': key.value.trim() } : {};
-  const api = async (path) => {
-    const res = await fetch(path, { headers: headers() });
+  const api = async (path, opts) => {
+    const init = { headers: { ...headers() } };
+    if (opts && opts.method) init.method = opts.method;
+    if (opts && opts.body !== undefined) { init.body = JSON.stringify(opts.body); init.headers['content-type'] = 'application/json'; }
+    const res = await fetch(path, init);
     const body = await res.json().catch(() => ({}));
     if (!res.ok && res.status !== 503) { const e = new Error(body?.error?.message || `HTTP ${res.status}`); e.status = res.status; throw e; }
     return body;
@@ -286,6 +305,92 @@
     out.append(table);
   }
 
+  /* ---- price alerts ---- */
+  const alType = $('#alType'), alA = $('#alA'), alB = $('#alB'), alD1 = $('#alD1'), alD2 = $('#alD2'), alThresh = $('#alThresh');
+  function syncAlertForm() {
+    const flights = alType.value === 'flights';
+    alA.placeholder = flights ? 'from (LAX)' : 'city (Las Vegas)';
+    alB.style.display = flights ? '' : 'none';
+    alD1.placeholder = flights ? 'date (2026-08-01)' : 'check-in';
+    alD2.style.display = flights ? 'none' : '';
+  }
+  alType.addEventListener('change', syncAlertForm);
+  syncAlertForm();
+
+  function alertLabel(a) {
+    const q = a.query || {};
+    if (a.type === 'flights') { return [q.from, q.to].filter(Boolean).join(' -> ') || a.key || 'n/a'; }
+    return q.city || a.key || 'n/a';
+  }
+  function alertStatus(a) {
+    if (a.active === false) return ['uncfg', 'inactive'];
+    if (a.triggered) return ['ok', 'triggered'];
+    return ['off', 'watching'];
+  }
+  async function deleteAlert(id) {
+    const msg = $('#alMsg');
+    try { await api(`/v1/alerts?id=${encodeURIComponent(id)}`, { method: 'DELETE' }); msg.className = 'err'; renderAlerts(); }
+    catch (err) { msg.textContent = `Delete failed: ${err.message}`; msg.className = 'err on'; }
+  }
+  $('#alForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const type = alType.value;
+    const body = { type };
+    if (type === 'flights') {
+      if (alA.value.trim()) body.from = alA.value.trim();
+      if (alB.value.trim()) body.to = alB.value.trim();
+      if (alD1.value.trim()) body.date = alD1.value.trim();
+    } else {
+      if (alA.value.trim()) body.city = alA.value.trim();
+      if (alD1.value.trim()) body.checkin = alD1.value.trim();
+      if (alD2.value.trim()) body.checkout = alD2.value.trim();
+    }
+    if (alThresh.value.trim()) { body.threshold = Number(alThresh.value); body.currency = 'USD'; }
+    const msg = $('#alMsg');
+    try {
+      await api('/v1/alerts', { method: 'POST', body });
+      msg.className = 'err';
+      alA.value = ''; alB.value = ''; alD1.value = ''; alD2.value = ''; alThresh.value = '';
+      renderAlerts();
+    } catch (err) { msg.textContent = `Create failed: ${err.message}`; msg.className = 'err on'; }
+  });
+  async function renderAlerts() {
+    const box = $('#alerts'), stat = $('#alertStat');
+    try {
+      const body = await api('/v1/alerts');
+      const alerts = (body.data && body.data.alerts) || [];
+      const triggered = alerts.filter((a) => a.triggered).length;
+      const count = (body.data && typeof body.data.count === 'number') ? body.data.count : alerts.length;
+      stat.textContent = `${count} alerts, ${triggered} triggered`;
+      box.textContent = '';
+      if (!alerts.length) { box.append(el('div', 'empty', 'No alerts.')); return; }
+      const table = el('table');
+      const head = el('tr');
+      ['Type', 'Route / City', 'Threshold', 'Last price', 'Status', 'Last checked', ''].forEach((h) => head.append(el('th', null, h)));
+      table.append(head);
+      for (const a of alerts) {
+        const tr = el('tr');
+        const thresh = (a.threshold != null && a.threshold !== '') ? `${a.threshold} ${a.currency || ''}`.trim() : 'saved search';
+        const last = (a.lastPrice != null) ? `${a.lastPrice} ${a.currency || ''}`.trim() : '-';
+        const checked = a.lastCheckedAt ? new Date(a.lastCheckedAt).toLocaleString() : '-';
+        const [cls, label] = alertStatus(a);
+        tr.append(el('td', null, a.type), el('td', null, alertLabel(a)), el('td', null, thresh), el('td', null, last));
+        const st = el('td'); st.append(el('span', `status ${cls}`, label)); tr.append(st);
+        tr.append(el('td', null, checked));
+        const actions = el('td');
+        const del = el('button', 'ghost', 'Delete'); del.type = 'button';
+        del.addEventListener('click', () => deleteAlert(a.id));
+        actions.append(del); tr.append(actions);
+        table.append(tr);
+      }
+      box.append(table);
+    } catch (err) {
+      box.textContent = '';
+      stat.textContent = '';
+      box.append(el('div', 'empty', err.status === 404 ? 'Alerts are disabled on this server.' : `Alerts unavailable: ${err.message}`));
+    }
+  }
+
   /* ---- refresh loop ---- */
   async function refresh() {
     if (paused) return;
@@ -306,6 +411,7 @@
         : `Refresh failed: ${err.message}`;
       $('#stamp').textContent = 'stale';
     }
+    renderAlerts();
   }
   refresh();
   setInterval(refresh, 10000);

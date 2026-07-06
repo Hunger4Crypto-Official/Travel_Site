@@ -168,6 +168,38 @@
   .viz-table th,.viz-table td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--grid);color:var(--ink-2);font-variant-numeric:tabular-nums}
   .linky{appearance:none;background:none;border:0;color:var(--ink-3);font:600 12px/1 inherit;cursor:pointer;text-decoration:underline}
 
+  /* price watch: "Watch this price" controls in the results summary bar */
+  .watch{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+  .watch input{padding:8px 10px;font-size:13px;width:150px}
+  .watch-btn{appearance:none;cursor:pointer;border-radius:10px;padding:9px 16px;font:700 13px/1 inherit;
+    color:#fff;background:linear-gradient(120deg,var(--s1),var(--s5));border:0;box-shadow:0 8px 20px rgba(57,135,229,.30);
+    transition:transform .15s, box-shadow .15s}
+  .watch-btn:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(57,135,229,.42)}
+  .watch-btn:active{transform:translateY(0)}
+  .watch-btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  .watch-btn[disabled]{opacity:.6;cursor:default;transform:none;box-shadow:none}
+  .watch-msg{font-size:12.5px;font-weight:700;color:var(--good)}
+
+  /* "My watches" panel: list of saved alerts */
+  .watches{margin-top:16px;padding:16px 18px}
+  .watches .whead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+  .watches h2{margin:0;font-size:15px;font-weight:700}
+  .refresh{appearance:none;background:none;border:0;color:var(--ink-3);font:600 12px/1 inherit;cursor:pointer;text-decoration:underline}
+  .refresh:hover{color:var(--ink)}
+  .refresh:focus-visible{outline:2px solid var(--s1);outline-offset:2px}
+  .watch-empty{margin:8px 0 0;font-size:13.5px;color:var(--ink-3)}
+  .watch-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 0;border-top:1px solid var(--grid)}
+  .watch-row:first-child{border-top:0}
+  .watch-route{font-weight:700;font-size:14px}
+  .watch-meta{font-size:12.5px;color:var(--ink-3);margin-top:2px}
+  .watch-tag{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700}
+  .watch-tag.trig{background:rgba(12,163,12,.16);color:var(--good)}
+  .watch-del{margin-left:auto;appearance:none;cursor:pointer;border-radius:10px;padding:8px 14px;font:700 13px/1 inherit;
+    color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--hairline);transition:background .15s, border-color .15s}
+  .watch-del:hover{background:rgba(208,59,59,.14);border-color:rgba(208,59,59,.4)}
+  .watch-del:focus-visible{outline:2px solid var(--s1);outline-offset:2px}
+  .watch-del[disabled]{opacity:.6;cursor:default}
+
   .err{margin-top:20px;padding:16px 18px;border-radius:var(--radius);border:1px solid rgba(208,59,59,.4);
        background:rgba(208,59,59,.10);color:var(--ink-2)}
   .err b{color:var(--critical)}
@@ -214,8 +246,13 @@
   };
   const apiKey = () => localStorage.getItem('ttc.apiKey') || '';
   const headers = () => apiKey() ? { 'x-api-key': apiKey() } : {};
-  const api = async (path) => {
-    const res = await fetch(path, { headers: headers() });
+  // GET by default (identical to before). Pass { method, body } to POST/DELETE;
+  // a body is JSON-encoded and gets a content-type header. x-api-key still
+  // flows through headers() so owner-scoping works for keyed callers.
+  const api = async (path, opts = {}) => {
+    const init = { method: opts.method || 'GET', headers: { ...headers() } };
+    if (opts.body !== undefined) { init.headers['content-type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+    const res = await fetch(path, init);
     const body = await res.json();
     if (!res.ok) { const e = new Error(body?.error?.message || `Request failed (${res.status})`); e.status = res.status; throw e; }
     return body;
@@ -246,6 +283,9 @@
   let active = TABS[0];
   let tripType = 'oneway'; // flights: 'oneway' | 'round' (controls whether returnDate is sent)
   let copyTimer;
+  let lastCurrency = '';   // currency of the most recent priced result set (used for alert bodies)
+  let watchesBody = null;  // container for the current "My watches" list (for refresh after add/delete)
+  let watchTimer;          // clears the transient "Watching" confirmation
 
   const tabsBox = $('#tabs');
   for (const tab of TABS) {
@@ -421,6 +461,8 @@
 
   function renderResults(data) {
     results.textContent = '';
+    if (data.currency) lastCurrency = data.currency;
+    const priced = ['flights', 'hotels', 'cars'].includes(active.id);
 
     const sum = el('div', 'panel sumbar');
     const count = el('span', 'stat'); count.append('Results: '); count.append(el('b', null, `${data.count}${data.total > data.count ? ` of ${data.total}` : ''}`));
@@ -429,6 +471,7 @@
     if (data.priceComparable === true) sum.append(el('span', 'chip fair', '✓ prices directly comparable'));
     if (data.ranking && data.ranking.paidPlacement === false) sum.append(el('span', 'chip fair', '✓ no paid placement'));
     if (data.currency) { const c = el('span', 'stat'); c.append('Currency: '); c.append(el('b', null, data.currency)); sum.append(c); }
+    if (priced) addWatchControls(sum);
     results.append(sum);
 
     if (data.message) results.append(el('p', 'note', data.message));
@@ -506,6 +549,129 @@
       grid.append(card);
     });
     if (grid.children.length) results.append(grid);
+
+    if (priced) appendWatchesPanel();
+  }
+
+  /* ---- price watch: save the current search as an alert, list/delete watches ---- */
+  // Build the alert body from the current form for the active vertical. Only the
+  // fields relevant to this vertical are sent (see THE ALERTS API contract).
+  function buildAlertBody() {
+    const params = collectParams();
+    const fieldsByType = {
+      flights: ['from', 'to', 'date'],
+      hotels: ['city', 'checkin', 'checkout'],
+      cars: ['city', 'date']
+    };
+    const alertBody = { type: active.id };
+    for (const key of (fieldsByType[active.id] || [])) {
+      const v = params.get(key);
+      if (v) alertBody[key] = v;
+    }
+    if (lastCurrency) alertBody.currency = lastCurrency;
+    return alertBody;
+  }
+
+  // The compact "Alert me under $___ / Watch this price" control in the summary
+  // bar. Empty target -> plain saved search (no threshold); a positive number is
+  // sent as `threshold`.
+  function addWatchControls(sum) {
+    const box = el('div', 'watch');
+    const priceInput = el('input');
+    priceInput.type = 'number'; priceInput.min = '0'; priceInput.step = 'any';
+    priceInput.placeholder = 'Alert under $ (optional)';
+    priceInput.setAttribute('aria-label', 'Target price to be alerted under (optional)');
+    const btn = el('button', 'watch-btn', 'Watch this price'); btn.type = 'button';
+    const msg = el('span', 'watch-msg'); msg.setAttribute('aria-live', 'polite');
+    btn.addEventListener('click', async () => {
+      const alertBody = buildAlertBody();
+      const raw = priceInput.value.trim();
+      if (raw) { const n = Number(raw); if (Number.isFinite(n) && n > 0) alertBody.threshold = n; }
+      btn.disabled = true; msg.style.color = ''; msg.textContent = '';
+      try {
+        await api('/v1/alerts', { method: 'POST', body: alertBody });
+        msg.style.color = ''; msg.textContent = 'Watching' + (alertBody.threshold ? ` under ${money(alertBody.threshold, lastCurrency)}` : '');
+        priceInput.value = '';
+        if (watchesBody) loadWatches(watchesBody);
+      } catch (err) {
+        msg.style.color = 'var(--serious)';
+        msg.textContent = err.status === 404 ? 'Price alerts are turned off on this server.' : `Could not watch (${err.status || 'network'}).`;
+      } finally {
+        btn.disabled = false;
+        clearTimeout(watchTimer);
+        watchTimer = setTimeout(() => { msg.textContent = ''; msg.style.color = ''; }, 4000);
+      }
+    });
+    box.append(priceInput, btn, msg);
+    sum.append(box);
+  }
+
+  // The "My watches" panel: header with a Refresh affordance plus a body the
+  // loader fills in. watchesBody is tracked so add/delete can refresh in place.
+  function appendWatchesPanel() {
+    const panel = el('section', 'panel watches');
+    const head = el('div', 'whead');
+    const body = el('div', 'wbody');
+    watchesBody = body;
+    const refresh = el('button', 'refresh', 'Refresh'); refresh.type = 'button';
+    refresh.addEventListener('click', () => loadWatches(body));
+    head.append(el('h2', null, 'My watches'), refresh);
+    panel.append(head, body);
+    results.append(panel);
+    loadWatches(body);
+  }
+
+  // Human label for a saved alert from its echoed query.
+  function watchLabel(a) {
+    const q = a.query || {};
+    if (q.from || q.to) return `${q.from || '?'} -> ${q.to || '?'}${q.date ? ` · ${q.date}` : ''}`;
+    if (q.city) return `${q.city}${q.checkin ? ` · ${q.checkin}` : (q.date ? ` · ${q.date}` : '')}`;
+    return a.type || 'search';
+  }
+
+  function renderWatchRow(a, container) {
+    const row = el('div', 'watch-row');
+    const info = el('div');
+    info.append(el('div', 'watch-route', watchLabel(a)));
+    const meta = [];
+    meta.push(Number.isFinite(a.threshold) ? `alert under ${money(a.threshold, a.currency)}` : 'saved search');
+    if (Number.isFinite(a.lastPrice)) meta.push(`last ${money(a.lastPrice, a.currency)}`);
+    if (a.notifyConfigured) meta.push('notify on');
+    info.append(el('div', 'watch-meta', meta.join(' · ')));
+    row.append(info);
+    if (a.triggered) row.append(el('span', 'watch-tag trig', '● triggered'));
+    const del = el('button', 'watch-del', 'Delete'); del.type = 'button';
+    del.setAttribute('aria-label', `Delete watch ${watchLabel(a)}`);
+    del.addEventListener('click', async () => {
+      del.disabled = true; del.textContent = 'Deleting...';
+      try {
+        await api(`/v1/alerts?id=${encodeURIComponent(a.id)}`, { method: 'DELETE' });
+        row.remove();
+        if (container && !container.querySelector('.watch-row')) container.append(el('p', 'watch-empty', 'No watches yet.'));
+      } catch (err) {
+        del.disabled = false; del.textContent = 'Retry delete';
+      }
+    });
+    row.append(del);
+    return row;
+  }
+
+  async function loadWatches(container) {
+    container.textContent = '';
+    container.append(el('p', 'watch-empty', 'Loading watches...'));
+    let body;
+    try {
+      body = await api('/v1/alerts');
+    } catch (err) {
+      container.textContent = '';
+      const message = err.status === 404 ? 'Price alerts are turned off on this server.' : (err.message || 'Could not load your watches.');
+      container.append(el('p', 'watch-empty', message));
+      return;
+    }
+    const alerts = (body.data && body.data.alerts) || [];
+    container.textContent = '';
+    if (!alerts.length) { container.append(el('p', 'watch-empty', 'No watches yet.')); return; }
+    for (const a of alerts) container.append(renderWatchRow(a, container));
   }
 
   /* ---- flexible-date price strip: cheapest per day around the chosen date ---- */

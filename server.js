@@ -37,8 +37,12 @@ const engine = new TravelEngine({
 });
 
 const openapiSpec = loadOpenapiSpec(logger);
+const pages = {
+  app: loadPage('./public/app.html', logger),
+  admin: loadPage('./public/admin.html', logger)
+};
 
-const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec }));
+const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages }));
 
 server.listen(config.port, () => {
   logger.info('Server started', { service: brand.name, acronym: brand.acronym, port: config.port, nodeEnv: config.nodeEnv });
@@ -49,6 +53,15 @@ function loadOpenapiSpec(log) {
     return readFileSync(new URL('./docs/openapi.yaml', import.meta.url), 'utf8');
   } catch (err) {
     log.warn('OpenAPI spec could not be loaded', { error: err.message });
+    return null;
+  }
+}
+
+function loadPage(path, log) {
+  try {
+    return readFileSync(new URL(path, import.meta.url), 'utf8');
+  } catch (err) {
+    log.warn('Page could not be loaded', { path, error: err.message });
     return null;
   }
 }

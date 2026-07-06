@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>THE Travel Club: Operations Console</title>
+<style>
+  :root{
+    --page:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+    --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#898781;
+    --hairline:rgba(255,255,255,.10); --grid:#2c2c2a; --baseline:#383835;
+    --s1:#3987e5; --s2:#199e70; --s3:#c98500; --s5:#9085e9;
+    --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+        radial-gradient(1200px 500px at 85% -10%, rgba(57,135,229,.14), transparent 60%),
+        radial-gradient(900px 420px at -10% 20%, rgba(144,133,233,.10), transparent 55%),
+        var(--page);
+       color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}
+  @media (prefers-reduced-motion: reduce){ *{animation-duration:.01ms!important;transition-duration:.01ms!important} }
+  .wrap{max-width:1180px;margin:0 auto;padding:26px 20px 80px}
+  header{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-bottom:20px}
+  h1{margin:0;font-size:21px;font-weight:800;letter-spacing:.01em}
+  h1 small{display:block;font-size:12px;color:var(--ink-3);font-weight:600;letter-spacing:.14em;text-transform:uppercase}
+  .spacer{flex:1}
+  .pulse{width:9px;height:9px;border-radius:50%;background:var(--good);box-shadow:0 0 0 0 rgba(12,163,12,.5);animation:pulse 2s infinite}
+  .pulse.err{background:var(--critical);animation:none}
+  @keyframes pulse{70%{box-shadow:0 0 0 9px rgba(12,163,12,0)}100%{box-shadow:0 0 0 0 rgba(12,163,12,0)}}
+  .meta{font-size:12.5px;color:var(--ink-3)}
+  input,button.ghost{background:var(--surface-2);border:1px solid var(--hairline);border-radius:9px;color:var(--ink);
+        padding:8px 11px;font:600 13px/1 inherit;outline:none}
+  input:focus{border-color:var(--s1)}
+  button.ghost{cursor:pointer;color:var(--ink-2)} button.ghost:hover{color:var(--ink);border-color:rgba(255,255,255,.25)}
+  .cardrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:14px}
+  .panel{background:rgba(26,26,25,.8);border:1px solid var(--hairline);border-radius:var(--radius);
+         box-shadow:0 18px 44px rgba(0,0,0,.35)}
+  .tile{padding:16px 18px}
+  .tile .k{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+  .tile .v{margin-top:6px;font-size:30px;font-weight:800;letter-spacing:-.01em}
+  .tile .s{font-size:12px;color:var(--ink-3);margin-top:2px}
+  .cols{display:grid;grid-template-columns:1.15fr .85fr;gap:12px;align-items:start}
+  @media (max-width:900px){.cols{grid-template-columns:1fr}}
+  section.panel{padding:16px 18px;margin-bottom:12px}
+  h2{margin:0 0 3px;font-size:15px;font-weight:750}
+  .sub{font-size:12.5px;color:var(--ink-3);margin:0 0 12px}
+  .providers{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
+  .prov{border:1px solid var(--hairline);border-radius:12px;padding:12px 14px;background:rgba(35,35,34,.5)}
+  .prov .name{font-weight:750;font-size:14px;display:flex;align-items:center;gap:8px;justify-content:space-between}
+  .status{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:800;letter-spacing:.04em}
+  .status.ok{color:var(--good)} .status.open{color:var(--critical)} .status.off{color:var(--ink-3)} .status.uncfg{color:var(--warn)}
+  .caps{margin-top:8px;display:flex;flex-wrap:wrap;gap:5px}
+  .cap{font-size:11px;padding:2.5px 8px;border-radius:999px;background:rgba(57,135,229,.14);color:#86b6ef;font-weight:700}
+  .bars .row{display:grid;grid-template-columns:190px 1fr 74px;gap:10px;align-items:center;padding:5px 0}
+  .bars .lbl{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bars .track{height:12px;position:relative}
+  .bars .fill{position:absolute;left:0;top:2px;bottom:2px;background:var(--s1);border-radius:0 4px 4px 0;
+              min-width:2px;transition:width .6s cubic-bezier(.2,.8,.2,1)}
+  .bars .val{font-size:12px;color:var(--ink-2);text-align:right;font-variant-numeric:tabular-nums}
+  .bars .axis{border-left:1px solid var(--baseline)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{color:var(--ink-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-align:left}
+  th,td{padding:7px 8px;border-bottom:1px solid var(--grid)}
+  td{color:var(--ink-2);font-variant-numeric:tabular-nums}
+  td:first-child{color:var(--ink)}
+  .empty{color:var(--ink-3);font-size:13px;padding:14px 0}
+  form.hx{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  form.hx input,form.hx select{font-size:13px;padding:8px 10px}
+  form.hx button{cursor:pointer;border:0;border-radius:9px;padding:8px 16px;font:700 13px/1 inherit;color:#fff;
+                 background:linear-gradient(120deg,var(--s1),var(--s5))}
+  .viz-wrap{position:relative}
+  .tip{position:absolute;pointer-events:none;background:var(--surface-2);border:1px solid var(--hairline);border-radius:8px;
+       padding:6px 10px;font-size:12.5px;display:none;white-space:nowrap;box-shadow:0 8px 20px rgba(0,0,0,.4);z-index:3}
+  .trust li{margin:6px 0;color:var(--ink-2);font-size:13px}
+  .trust b{color:var(--ink)}
+  .err{border:1px solid rgba(208,59,59,.4);background:rgba(208,59,59,.10);border-radius:12px;
+       padding:12px 14px;color:var(--ink-2);font-size:13.5px;margin-bottom:12px;display:none}
+  .err.on{display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="pulse" id="pulse" aria-hidden="true"></div>
+    <h1><small>THE Travel Club</small>Operations Console</h1>
+    <span class="spacer"></span>
+    <span class="meta" id="stamp">connecting…</span>
+    <input id="key" type="password" placeholder="API key (if required)" aria-label="API key">
+    <button class="ghost" id="pause" type="button">Pause</button>
+  </header>
+
+  <div class="err" id="err" role="alert"></div>
+
+  <div class="cardrow" id="tiles"></div>
+
+  <div class="cols">
+    <div>
+      <section class="panel">
+        <h2>Providers</h2>
+        <p class="sub">Live readiness and circuit state per data source.</p>
+        <div class="providers" id="providers"><div class="empty">Waiting for first refresh…</div></div>
+      </section>
+
+      <section class="panel">
+        <h2>Provider latency (average ms per call)</h2>
+        <p class="sub">From in-process timings; hover a bar for count and max.</p>
+        <div class="bars viz-wrap" id="latency"><div class="empty">No timings yet. Run a search.</div></div>
+      </section>
+
+      <section class="panel">
+        <h2>Price history explorer</h2>
+        <p class="sub">The engine’s price memory, queryable per route or city.</p>
+        <form class="hx" id="hx">
+          <select id="hxType" aria-label="Vertical"><option value="flights">flights</option><option value="hotels">hotels</option><option value="cars">cars</option></select>
+          <input id="hxA" placeholder="from (LAX)" aria-label="From or city">
+          <input id="hxB" placeholder="to (JFK)" aria-label="To">
+          <button type="submit">Query</button>
+        </form>
+        <div id="hxOut" class="viz-wrap"><div class="empty">Query a route to see its recorded price series.</div></div>
+      </section>
+    </div>
+
+    <div>
+      <section class="panel">
+        <h2>Counters</h2>
+        <p class="sub">Raw in-process counters (cache, providers, rate limiting).</p>
+        <div id="counters"><div class="empty">Waiting for metrics…</div></div>
+      </section>
+
+      <section class="panel">
+        <h2>Published trust commitments</h2>
+        <p class="sub">What <code>/v1/trust</code> promises consumers right now.</p>
+        <ul class="trust" id="trust"><li class="empty">Loading…</li></ul>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (sel) => document.querySelector(sel);
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
+  const key = $('#key'); key.value = localStorage.getItem('ttc.adminKey') || '';
+  key.addEventListener('change', () => { localStorage.setItem('ttc.adminKey', key.value.trim()); refresh(); });
+  const headers = () => key.value.trim() ? { 'x-api-key': key.value.trim() } : {};
+  const api = async (path) => {
+    const res = await fetch(path, { headers: headers() });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok && res.status !== 503) { const e = new Error(body?.error?.message || `HTTP ${res.status}`); e.status = res.status; throw e; }
+    return body;
+  };
+
+  let paused = false;
+  $('#pause').addEventListener('click', () => {
+    paused = !paused;
+    $('#pause').textContent = paused ? 'Resume' : 'Pause';
+    if (!paused) refresh();
+  });
+
+  /* ---- tiles ---- */
+  function renderTiles(ready, metrics) {
+    const counters = metrics?.counters || {};
+    const sumBy = (prefix) => Object.entries(counters).filter(([name]) => name.startsWith(prefix)).reduce((total, [, v]) => total + v, 0);
+    const hits = sumBy('search.cache_hit'), misses = sumBy('search.cache_miss');
+    const tiles = [
+      { k: 'Providers ready', v: `${ready.providers.filter((p) => p.ready && !p.circuit?.open).length}/${ready.providers.length}`, s: ready.ok ? 'engine ready' : 'NOT ready' },
+      { k: 'Searches served', v: String(hits + misses), s: `${sumBy('provider.failure')} provider failures` },
+      { k: 'Cache hit rate', v: hits + misses ? `${Math.round((hits / (hits + misses)) * 100)}%` : 'n/a', s: `${hits} hits · ${misses} misses` },
+      { k: 'Rate limited', v: String(sumBy('search.rate_limited')), s: 'requests shed (429)' }
+    ];
+    const row = $('#tiles'); row.textContent = '';
+    for (const t of tiles) {
+      const tile = el('div', 'panel tile');
+      tile.append(el('div', 'k', t.k), el('div', 'v', t.v), el('div', 's', t.s));
+      row.append(tile);
+    }
+  }
+
+  /* ---- providers ---- */
+  function providerStatus(p) {
+    if (p.circuit?.open) return ['open', '⛔ circuit open'];
+    if (!p.enabled) return ['off', '○ disabled'];
+    if (!p.ready) return ['uncfg', '⚠ not configured'];
+    return ['ok', '● ready'];
+  }
+  function renderProviders(ready) {
+    const box = $('#providers'); box.textContent = '';
+    for (const p of ready.providers) {
+      const card = el('div', 'prov');
+      const name = el('div', 'name');
+      const [cls, label] = providerStatus(p);
+      name.append(el('span', null, p.provider), el('span', `status ${cls}`, label));
+      card.append(name);
+      const caps = el('div', 'caps');
+      for (const cap of p.supports || []) caps.append(el('span', 'cap', cap));
+      card.append(caps);
+      box.append(card);
+    }
+  }
+
+  /* ---- latency bars (single measure across categories -> one hue) ---- */
+  function renderLatency(metrics) {
+    const box = $('#latency'); box.textContent = '';
+    const rows = Object.entries(metrics?.timings || {})
+      .filter(([name]) => name.startsWith('provider.duration_ms'))
+      .map(([name, t]) => ({ label: name.replace('provider.duration_ms', '').replace(/[{}]/g, '') || 'all', ...t }))
+      .sort((a, b) => b.averageMs - a.averageMs)
+      .slice(0, 10);
+    if (!rows.length) { box.append(el('div', 'empty', 'No timings yet. Run a search.')); return; }
+    const max = Math.max(...rows.map((r) => r.averageMs), 1);
+    const tip = el('div', 'tip');
+    for (const r of rows) {
+      const row = el('div', 'row');
+      const track = el('div', 'track axis');
+      const fill = el('div', 'fill');
+      requestAnimationFrame(() => { fill.style.width = `${Math.max((r.averageMs / max) * 100, 1)}%`; });
+      track.append(fill);
+      row.append(el('div', 'lbl', r.label), track, el('div', 'val', `${r.averageMs} ms`));
+      row.addEventListener('pointerenter', (event) => {
+        tip.style.display = 'block';
+        tip.textContent = `${r.label} · avg ${r.averageMs} ms · max ${r.maxMs} ms · ${r.count} calls`;
+        tip.style.left = `${event.offsetX + 10}px`; tip.style.top = `${row.offsetTop - 8}px`;
+      });
+      row.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
+      box.append(row);
+    }
+    box.append(tip);
+  }
+
+  /* ---- counters table ---- */
+  function renderCounters(metrics) {
+    const box = $('#counters'); box.textContent = '';
+    const entries = Object.entries(metrics?.counters || {}).sort(([a], [b]) => a.localeCompare(b));
+    if (!entries.length) { box.append(el('div', 'empty', 'No counters yet.')); return; }
+    const table = el('table');
+    const head = el('tr'); head.append(el('th', null, 'Counter'), el('th', null, 'Count')); table.append(head);
+    for (const [name, value] of entries.slice(0, 20)) {
+      const tr = el('tr'); tr.append(el('td', null, name), el('td', null, String(value))); table.append(tr);
+    }
+    box.append(table);
+  }
+
+  /* ---- trust ---- */
+  api('/v1/trust').then((body) => {
+    const list = $('#trust'); list.textContent = '';
+    for (const c of body.data.commitments) {
+      const li = el('li');
+      li.append(el('b', null, `${c.id}: `), el('span', null, c.promise));
+      list.append(li);
+    }
+  }).catch(() => { $('#trust').textContent = 'Trust manifest unavailable.'; });
+
+  /* ---- price history explorer ---- */
+  const hxType = $('#hxType'), hxA = $('#hxA'), hxB = $('#hxB');
+  hxType.addEventListener('change', () => {
+    const flights = hxType.value === 'flights';
+    hxA.placeholder = flights ? 'from (LAX)' : 'city (Las Vegas)';
+    hxB.style.display = flights ? '' : 'none';
+  });
+  $('#hx').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const out = $('#hxOut'); out.textContent = ''; out.append(el('div', 'empty', 'Loading…'));
+    const q = new URLSearchParams({ type: hxType.value });
+    if (hxType.value === 'flights') { q.set('from', hxA.value.trim()); q.set('to', hxB.value.trim()); }
+    else q.set('city', hxA.value.trim());
+    try {
+      const body = await api(`/v1/prices/history?${q}`);
+      renderHistory(body.data);
+    } catch (err) {
+      out.textContent = ''; out.append(el('div', 'empty', `Query failed: ${err.message}`));
+    }
+  });
+  function renderHistory(d) {
+    const out = $('#hxOut'); out.textContent = '';
+    if (!d.samples) { out.append(el('div', 'empty', d.message || 'No history for that key yet.')); return; }
+    out.append(el('div', 'sub', `${d.key} · ${d.samples} samples · avg ${d.average} ${d.currency} · lowest ${d.lowest} · latest ${d.latest}`));
+    const table = el('table');
+    const head = el('tr'); ['When', 'Total', 'Provider'].forEach((h) => head.append(el('th', null, h))); table.append(head);
+    for (const s of (d.series || []).slice().reverse().slice(0, 12)) {
+      const tr = el('tr');
+      tr.append(el('td', null, new Date(s.at).toLocaleString()), el('td', null, `${s.total} ${d.currency}`), el('td', null, s.provider));
+      table.append(tr);
+    }
+    out.append(table);
+  }
+
+  /* ---- refresh loop ---- */
+  async function refresh() {
+    if (paused) return;
+    try {
+      const [ready, metrics] = await Promise.all([api('/ready'), api('/metrics')]);
+      $('#err').className = 'err';
+      $('#pulse').className = ready.data?.ok === false ? 'pulse err' : 'pulse';
+      renderTiles(ready.data, metrics.data);
+      renderProviders(ready.data);
+      renderLatency(metrics.data);
+      renderCounters(metrics.data);
+      $('#stamp').textContent = `updated ${new Date().toLocaleTimeString()}`;
+    } catch (err) {
+      $('#pulse').className = 'pulse err';
+      const box = $('#err'); box.className = 'err on';
+      box.textContent = err.status === 401 || err.status === 403
+        ? 'Authentication required: paste a valid API key (top right) to read /ready and /metrics.'
+        : `Refresh failed: ${err.message}`;
+      $('#stamp').textContent = 'stale';
+    }
+  }
+  refresh();
+  setInterval(refresh, 10000);
+})();
+</script>
+</body>
+</html>

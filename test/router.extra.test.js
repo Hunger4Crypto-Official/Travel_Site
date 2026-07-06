@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { brand } from '../src/config/brand.js';
-import { handleRequest, clientIp } from '../src/routes/router.js';
+import { handleRequest, clientIp, wantsHtml } from '../src/routes/router.js';
 
 const logger = { info() {}, warn() {}, error() {}, debug() {} };
 
@@ -17,8 +17,8 @@ function fakeEngine(overrides = {}) {
   };
 }
 
-async function withServer(config, engine, fn, openapiSpec = null) {
-  const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec }));
+async function withServer(config, engine, fn, openapiSpec = null, pages = {}) {
+  const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages }));
   server.listen(0);
   await once(server, 'listening');
   const { port } = server.address();
@@ -117,6 +117,47 @@ test('a trailing slash resolves to the same route instead of 404', async () => {
   });
 });
 
+const samplePages = { app: '<!doctype html><title>App</title><h1>THE Travel Club</h1>', admin: '<!doctype html><title>Ops</title><h1>Console</h1>' };
+
+test('the root negotiates: browsers get the app, API clients get JSON', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const html = await fetch(`${base}/`, { headers: { accept: 'text/html,application/xhtml+xml' } });
+    assert.equal(html.status, 200);
+    assert.match(html.headers.get('content-type'), /text\/html/);
+    assert.match(await html.text(), /THE Travel Club/);
+
+    const json = await fetch(`${base}/`, { headers: { accept: 'application/json' } });
+    assert.match(json.headers.get('content-type'), /application\/json/);
+    const body = await json.json();
+    assert.equal(body.data.endpoints.app, '/app');
+    assert.equal(body.data.endpoints.admin, '/admin');
+  }, null, samplePages);
+});
+
+test('the root falls back to JSON when no app page is available', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const res = await fetch(`${base}/`, { headers: { accept: 'text/html' } });
+    assert.match(res.headers.get('content-type'), /application\/json/);
+  });
+});
+
+test('/app and /admin serve their pages, and 404 when not deployed', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const app = await fetch(`${base}/app`);
+    assert.equal(app.status, 200);
+    assert.match(await app.text(), /THE Travel Club/);
+    const admin = await fetch(`${base}/admin`);
+    assert.equal(admin.status, 200);
+    assert.match(admin.headers.get('content-type'), /text\/html/);
+    assert.match(await admin.text(), /Console/);
+  }, null, samplePages);
+
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    assert.equal((await fetch(`${base}/app`)).status, 404);
+    assert.equal((await fetch(`${base}/admin`)).status, 404);
+  });
+});
+
 test('/v1/trust is public, cacheable, and lists the published commitments', async () => {
   const cfg = { allowedOrigins: ['*'], requireApiKey: true, apiKeys: ['k'] }; // auth required for search...
   await withServer(cfg, fakeEngine(), async (base) => {
@@ -165,6 +206,12 @@ test('unknown-route 404s advertise the trust and price-history endpoints', async
 test('clientIp falls back to "unknown" without a forwarded header or socket', () => {
   assert.equal(clientIp({ headers: {}, socket: null }), 'unknown');
   assert.equal(clientIp({ headers: { 'x-forwarded-for': '198.51.100.9' }, socket: null }), '198.51.100.9');
+});
+
+test('wantsHtml detects browsers and tolerates a missing Accept header', () => {
+  assert.equal(wantsHtml({ headers: { accept: 'text/html,*/*' } }), true);
+  assert.equal(wantsHtml({ headers: { accept: 'application/json' } }), false);
+  assert.equal(wantsHtml({ headers: {} }), false); // no Accept header at all
 });
 
 test('an X-Forwarded-For client is rate-limited by its forwarded address', async () => {

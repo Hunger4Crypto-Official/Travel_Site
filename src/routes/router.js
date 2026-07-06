@@ -22,7 +22,12 @@ const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWi
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
-export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null }) {
+// The API default CSP is default-src 'none' (right for JSON). The web pages are
+// self-contained single files, so they need inline style/script and same-origin
+// fetch, while still forbidding framing, external sources, and form exfiltration.
+const PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+
+export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {} }) {
   const context = createRequestContext(req);
   setHeaders(res, responseHeaders({ requestId: context.requestId, origin: req.headers.origin, allowedOrigins: config.allowedOrigins }));
 
@@ -52,10 +57,24 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     : url.pathname;
   logger?.info('Request started', { requestId: context.requestId, method: req.method, path: pathname });
 
-  // Discovery: a root index so the first request a developer makes is useful.
+  // Discovery: browsers get the web app at the root, API clients get the JSON
+  // index — same URL, negotiated by the Accept header.
   if (pathname === '/' || pathname === '') {
+    if (pages.app && wantsHtml(req)) {
+      res.setHeader('cache-control', 'public, max-age=60');
+      res.setHeader('content-security-policy', PAGE_CSP);
+      return sendText(res, 200, pages.app, 'text/html; charset=utf-8', context, logger);
+    }
     res.setHeader('cache-control', 'public, max-age=300');
     return ok(200, serviceIndex(brand));
+  }
+
+  if (pathname === '/app' || pathname === '/admin') {
+    const page = pathname === '/app' ? pages.app : pages.admin;
+    if (!page) return fail(404, 'This page is not available on this deployment', { path: pathname });
+    res.setHeader('cache-control', 'public, max-age=60');
+    res.setHeader('content-security-policy', PAGE_CSP);
+    return sendText(res, 200, page, 'text/html; charset=utf-8', context, logger);
   }
 
   if (pathname === '/health') {
@@ -135,6 +154,8 @@ function serviceIndex(brand, now = Date.now()) {
     version: brand.apiVersion,
     documentation: '/openapi.yaml',
     endpoints: {
+      app: '/app',
+      admin: '/admin',
       health: '/health',
       readiness: '/ready',
       metrics: '/metrics',
@@ -189,6 +210,10 @@ function trustManifest(brand) {
       }
     ]
   };
+}
+
+export function wantsHtml(req) {
+  return String(req.headers.accept || '').includes('text/html');
 }
 
 export function clientIp(req) {

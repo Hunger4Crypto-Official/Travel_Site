@@ -71,6 +71,24 @@ Because provider responses are only as trustworthy as the mapping, every mapper 
   prints the normalized result, so a mapping is proven end-to-end the moment credentials and network
   egress are available. Unconfigured or unreachable providers are reported and skipped.
 
+## Web app and operations console
+
+The engine ships its own zero-dependency UI, served straight from `public/` with no build step:
+
+- **`/app`** (also what browsers get at `/` via content negotiation): a cinematic search
+  experience for flights, hotels, cars, airport info, and live tracking. It renders the trust
+  machinery visibly: all-in totals, estimate warnings, freshness chips (live/cached/demo), the
+  honest no-results and demo-data banners, "no paid placement", price-vs-average context, the
+  cheapest-offer highlight with every alternative seller listed, and a 30-day price-history
+  sparkline with a table view. Searches are shareable deep links
+  (`/app?tab=flights&from=LAX&to=JFK&date=...&auto=1`).
+- **`/admin`**: a live operations console polling `/ready` and `/metrics`: provider readiness and
+  circuit state, latency bars, cache hit rate, rate-limit counters, the published trust manifest,
+  and a price-history explorer. Paste an API key in the header when diagnostics are protected.
+
+Both pages are self-contained single files (inline CSS/JS, no external requests) and are served
+with their own strict CSP; the JSON API keeps its `default-src 'none'` policy.
+
 ## API endpoints
 
 ```bash

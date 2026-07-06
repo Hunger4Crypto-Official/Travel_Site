@@ -225,6 +225,36 @@ test('SkyScrapperProvider tolerates airport entries without a skyId and a payloa
   assert.deepEqual(offers, []);
 });
 
+test('SkyScrapperProvider builds a Skyscanner search deep link from route + date', async () => {
+  const offers = await new SkyScrapperProvider({ apiKey: 'k', fetchImpl: skyFetch() })
+    .search('flights', { from: 'LAX', to: 'JFK', date: '2026-07-01' });
+  // Route + departure date -> a stable, actionable Skyscanner search URL.
+  assert.equal(offers[0].deepLink, 'https://www.skyscanner.net/transport/flights/lax/jfk/260701/');
+});
+
+test('SkyScrapperProvider appends the affiliate marker to the constructed deep link', async () => {
+  const offers = await new SkyScrapperProvider({ apiKey: 'k', affiliateId: 'aff-9', fetchImpl: skyFetch() })
+    .search('flights', { from: 'LAX', to: 'JFK', date: '2026-07-01' });
+  assert.equal(offers[0].deepLink, 'https://www.skyscanner.net/transport/flights/lax/jfk/260701/?associateid=aff-9');
+});
+
+test('SkyScrapperProvider prefers an itinerary pricing-option URL and marks it with &', async () => {
+  const withUrl = { ...itinerary, pricingOptions: [{ url: 'https://www.skyscanner.net/book?id=abc' }] };
+  const fetchImpl = skyFetch({ flights: { status: true, data: { itineraries: [withUrl] } } });
+  const offers = await new SkyScrapperProvider({ apiKey: 'k', affiliateId: 'aff-9', fetchImpl })
+    .search('flights', { from: 'LAX', to: 'JFK', date: '2026-07-01' });
+  // The API URL already carries a query string, so the marker joins with '&'.
+  assert.equal(offers[0].deepLink, 'https://www.skyscanner.net/book?id=abc&associateid=aff-9');
+});
+
+test('SkyScrapperProvider omits the date segment from the deep link when none is known', async () => {
+  // No date on the query and a legless itinerary -> route-only Skyscanner URL.
+  const fetchImpl = skyFetch({ flights: { status: true, data: { itineraries: [{ id: 'nolegs', price: { raw: 100 } }] } } });
+  const offers = await new SkyScrapperProvider({ apiKey: 'k', fetchImpl })
+    .search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(offers[0].deepLink, 'https://www.skyscanner.net/transport/flights/lax/jfk/');
+});
+
 // ---- Booking.com ------------------------------------------------------------
 
 const vegasDestination = {
@@ -435,4 +465,33 @@ test('BookingComProvider falls back to a generic reason when an error carries no
     new BookingComProvider({ apiKey: 'k', fetchImpl }).search('hotels', { city: 'Las Vegas' }),
     /Booking\.com error: request rejected/
   );
+});
+
+test('BookingComProvider builds a search deep link and appends the affiliate aid', async () => {
+  const offers = await new BookingComProvider({ apiKey: 'k', affiliateId: 'aid-42', fetchImpl: bookingFetch() })
+    .search('hotels', { city: 'Las Vegas', checkin: '2026-07-01', checkout: '2026-07-05' });
+  // Constructed URL already has a query string, so aid joins with '&'.
+  assert.equal(
+    offers[0].deepLink,
+    'https://www.booking.com/searchresults.html?ss=Bellagio&checkin=2026-07-01&checkout=2026-07-05&aid=aid-42'
+  );
+});
+
+test('BookingComProvider prefers the property URL and appends aid with ?', async () => {
+  const hotel = {
+    hotel_id: 5,
+    property: { id: 5, name: 'Bellagio', url: 'https://www.booking.com/hotel/us/bellagio.html', priceBreakdown: { grossPrice: { currency: 'USD', value: 100 } } }
+  };
+  const fetchImpl = bookingFetch({ hotels: { status: true, data: { hotels: [hotel] } } });
+  const offers = await new BookingComProvider({ apiKey: 'k', affiliateId: 'aid-7', fetchImpl })
+    .search('hotels', { city: 'Las Vegas' });
+  assert.equal(offers[0].deepLink, 'https://www.booking.com/hotel/us/bellagio.html?aid=aid-7');
+});
+
+test('BookingComProvider omits stay dates from the deep link when none are known', async () => {
+  const hotel = { hotel_id: 6, property: { id: 6, name: 'Edge Inn', priceBreakdown: { grossPrice: { currency: 'USD', value: 90 } } } };
+  const fetchImpl = bookingFetch({ hotels: { status: true, data: { hotels: [hotel] } } });
+  const offers = await new BookingComProvider({ apiKey: 'k', fetchImpl })
+    .search('hotels', { city: 'Las Vegas' }); // no checkin/checkout, and property has no dates
+  assert.equal(offers[0].deepLink, 'https://www.booking.com/searchresults.html?ss=Edge+Inn');
 });

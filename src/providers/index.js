@@ -7,6 +7,7 @@ import { AeroDataBoxProvider } from './aeroDataBoxProvider.js';
 import { TravelpayoutsProvider } from './travelpayoutsProvider.js';
 import { SkyScrapperProvider } from './skyScrapperProvider.js';
 import { BookingComProvider } from './bookingComProvider.js';
+import { CarRentalProvider } from './carRentalProvider.js';
 
 // Builds the active provider set from configuration. No-key real providers and
 // the demo provider are on by default; key-based providers are registered only
@@ -20,9 +21,11 @@ export function createProviders(config = {}) {
   // prices for these, or a placeholder offer could win a real lowest-price race.
   const realFlights = Boolean(config.travelpayoutsToken || config.skyScrapperKey);
   const realHotels = Boolean((config.hotelbedsApiKey && config.hotelbedsSecret) || config.bookingComKey);
+  const realCars = Boolean(config.carRentalKey);
   const demoExclude = [];
   if (realFlights) demoExclude.push('flights');
   if (realHotels) demoExclude.push('hotels');
+  if (realCars) demoExclude.push('cars');
 
   if (config.demoProviderEnabled !== false) {
     providers.push(new MockProvider({ name: 'the-travel-club-demo', affiliateId, timeoutMs, excludeTypes: demoExclude }));
@@ -81,6 +84,15 @@ export function createProviders(config = {}) {
   if (config.bookingComKey) {
     providers.push(new BookingComProvider({
       apiKey: config.bookingComKey,
+      currency: config.baseCurrency,
+      affiliateId,
+      timeoutMs
+    }));
+  }
+
+  if (config.carRentalKey) {
+    providers.push(new CarRentalProvider({
+      apiKey: config.carRentalKey,
       currency: config.baseCurrency,
       affiliateId,
       timeoutMs

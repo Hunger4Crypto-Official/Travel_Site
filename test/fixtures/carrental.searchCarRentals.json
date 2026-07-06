@@ -1,0 +1,69 @@
+{
+  "status": true,
+  "message": "Success",
+  "timestamp": 1751400000000,
+  "data": {
+    "search_key": "eyJkcml2ZXJfYWdlIjozMH0=",
+    "provider": "rentalcars",
+    "count": 118,
+    "filter": [],
+    "search_results": [
+      {
+        "vehicle_id": "705328917",
+        "deeplink": "https://cars.booking.com/search-results?vehicle_id=705328917",
+        "vehicle_info": {
+          "v_name": "Toyota Corolla",
+          "group": "Compact",
+          "transmission": "Automatic",
+          "seats": "5",
+          "doors": "4",
+          "mileage": "Unlimited",
+          "aircon": true,
+          "fuel_policy": "Full to full",
+          "image_url": "https://cdn.rcstatic.com/images/car_images/toyota_corolla.png",
+          "unlimited_mileage": true
+        },
+        "supplier_info": {
+          "name": "Hertz",
+          "logo_url": "https://cdn.rcstatic.com/images/supplier_logos/hertz.png",
+          "address": "Harry Reid International Airport, Las Vegas",
+          "rating_info": { "average": 8.1, "no_of_ratings": 4210 }
+        },
+        "pricing_info": {
+          "price": 154.32,
+          "base_price": 154.32,
+          "base_currency": "USD",
+          "currency": "USD",
+          "drivers_price": 154.32,
+          "quote_allowed": 1
+        },
+        "route_info": {
+          "pickup": {
+            "name": "Harry Reid International Airport",
+            "address": "5757 Wayne Newton Blvd, Las Vegas, NV 89119",
+            "latitude": 36.084,
+            "longitude": -115.1537
+          },
+          "dropoff": {
+            "name": "Harry Reid International Airport",
+            "address": "5757 Wayne Newton Blvd, Las Vegas, NV 89119"
+          }
+        }
+      },
+      {
+        "vehicle_info": {
+          "group": "Economy",
+          "transmission": "Manual",
+          "doors": "4"
+        },
+        "supplier_info": {
+          "name": "Budget"
+        },
+        "pricing_info": {
+          "currency": "USD",
+          "quote_allowed": 1
+        }
+      }
+    ]
+  }
+}

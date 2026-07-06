@@ -11,6 +11,7 @@ const logger = { info() {}, warn() {}, error() {}, debug() {} };
 function fakeEngine(overrides = {}) {
   return {
     search: overrides.search || (async () => ({ query: {}, count: 0, offers: [], providers: [] })),
+    flexibleSearch: overrides.flexibleSearch || (async () => ({ type: 'flights', calendar: [], cheapestDate: null })),
     readiness: overrides.readiness || (() => ({ ok: true, providers: [] })),
     metricsSnapshot: overrides.metricsSnapshot || (() => ({ counters: {}, timings: {} })),
     priceHistorySnapshot: overrides.priceHistorySnapshot || (() => ({ type: 'flights', key: 'LAX-JFK', samples: 0 }))
@@ -200,6 +201,32 @@ test('unknown-route 404s advertise the trust and price-history endpoints', async
     const body = await (await fetch(`${base}/nope`)).json();
     assert.ok(body.error.details.availableRoutes.includes('/v1/trust'));
     assert.ok(body.error.details.availableRoutes.includes('/v1/prices/history'));
+    assert.ok(body.error.details.availableRoutes.includes('/v1/flights/calendar'));
+  });
+});
+
+test('/v1/flights/calendar proxies flexibleSearch with the flex parameter', async () => {
+  const seen = [];
+  const engine = fakeEngine({
+    flexibleSearch: async (type, query, ctx, opts) => { seen.push([type, query.from, opts.flexDays]); return { type, calendar: [{ date: '2027-05-01', cheapest: { total: 210 } }], cheapestDate: '2027-05-01' }; }
+  });
+  await withServer(openConfig, engine, async (base) => {
+    const res = await fetch(`${base}/v1/flights/calendar?from=LAX&to=JFK&date=2027-05-01&flex=2`);
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(body.data.cheapestDate, '2027-05-01');
+    assert.deepEqual(seen[0], ['flights', 'LAX', '2']);
+  });
+});
+
+test('/v1/flights/calendar surfaces engine validation errors', async () => {
+  const engine = fakeEngine({
+    flexibleSearch: async () => { const e = new Error('A center date is required for a flexible-date calendar'); e.statusCode = 400; throw e; }
+  });
+  await withServer(openConfig, engine, async (base) => {
+    const res = await fetch(`${base}/v1/flights/calendar?from=LAX&to=JFK`);
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error.message, /center date is required/);
   });
 });
 

@@ -1,6 +1,6 @@
 // Contract tests: run each provider's mapper against a recorded, real-shaped API
 // response (test/fixtures/*) and assert the normalized output honors the
-// comparison contract — a comparable `total`, correct `estimated`/`freshness`,
+// comparison contract: a comparable `total`, correct `estimated`/`freshness`,
 // and currency. This is the offline proof that mappings match documented shapes;
 // `npm run smoke:live` proves them against the live APIs once keys + egress exist.
 import test from 'node:test';
@@ -72,6 +72,10 @@ test('contract: Sky-Scrapper fixtures map to live all-in flight totals with segm
   assert.equal(nonStop.details.stops, 0);
   assert.equal(nonStop.score, 94); // itinerary score 0.94 scaled
   assert.match(nonStop.title, /LAX → JFK \(American Airlines\)/);
+
+  // Every priced offer carries an actionable Skyscanner deep link.
+  assert.equal(oneStop.deepLink, 'https://www.skyscanner.net/transport/flights/lax/jfk/260701/');
+  assert.equal(nonStop.deepLink, 'https://www.skyscanner.net/transport/flights/lax/jfk/260701/');
 });
 
 test('contract: Booking.com fixtures map gross + excluded charges to an all-in total', async () => {
@@ -96,6 +100,12 @@ test('contract: Booking.com fixtures map gross + excluded charges to an all-in t
 
   assert.equal(linq.price.total, 412.05); // no excluded charges reported
   assert.equal(linq.price.fees, null);
+
+  // Every priced offer carries an actionable Booking.com deep link.
+  assert.equal(
+    bellagio.deepLink,
+    'https://www.booking.com/searchresults.html?ss=Bellagio&checkin=2026-07-01&checkout=2026-07-05'
+  );
 });
 
 test('contract: AeroDataBox fixture maps to enriched airport detail', async () => {

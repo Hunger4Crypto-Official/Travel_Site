@@ -18,7 +18,7 @@ const routeMap = new Map([
 
 // Versioned routes advertised in discovery responses (the unversioned aliases
 // stay available but are not promoted).
-const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/prices/history', '/v1/trust'];
+const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/trust'];
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
@@ -58,7 +58,7 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   logger?.info('Request started', { requestId: context.requestId, method: req.method, path: pathname });
 
   // Discovery: browsers get the web app at the root, API clients get the JSON
-  // index — same URL, negotiated by the Accept header.
+  // index; same URL is negotiated by the Accept header.
   if (pathname === '/' || pathname === '') {
     if (pages.app && wantsHtml(req)) {
       res.setHeader('cache-control', 'public, max-age=60');
@@ -118,13 +118,19 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
       return ok(200, engine.priceHistorySnapshot(query.type, query), { principal: auth.principal });
     }
 
+    // Rate-limit per authenticated principal when available, else per client IP.
+    const clientKey = auth.principal && auth.principal !== 'anonymous' ? auth.principal : clientIp(req);
+
+    if (pathname === '/v1/flights/calendar') {
+      const calendar = await engine.flexibleSearch('flights', query, { clientKey }, { flexDays: query.flex });
+      return ok(200, calendar, { principal: auth.principal });
+    }
+
     const type = routeMap.get(pathname);
     if (!type) {
       return fail(404, 'Route not found', { path: pathname, availableRoutes: advertisedRoutes });
     }
 
-    // Rate-limit per authenticated principal when available, else per client IP.
-    const clientKey = auth.principal && auth.principal !== 'anonymous' ? auth.principal : clientIp(req);
     const data = await engine.search(type, query, { clientKey });
     return ok(200, data, { principal: auth.principal });
   } catch (err) {
@@ -161,6 +167,7 @@ function serviceIndex(brand, now = Date.now()) {
       metrics: '/metrics',
       trust: '/v1/trust',
       flights: `/v1/flights/search?from=LAX&to=JFK&date=${depart}`,
+      flightsCalendar: `/v1/flights/calendar?from=LAX&to=JFK&date=${depart}&flex=3`,
       hotels: `/v1/hotels/search?city=Las%20Vegas&checkin=${checkin}&checkout=${checkout}`,
       cars: `/v1/cars/search?city=Miami&date=${carDate}`,
       priceHistory: '/v1/prices/history?type=flights&from=LAX&to=JFK',

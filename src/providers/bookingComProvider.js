@@ -110,11 +110,11 @@ export class BookingComProvider extends BaseProvider {
     }
     const hotels = Array.isArray(payload?.data?.hotels) ? payload.data.hotels : [];
     return hotels.slice(0, MAX_HOTELS)
-      .map((hotel) => this.toOffer(hotel, destination))
+      .map((hotel) => this.toOffer(hotel, destination, query))
       .filter(Boolean);
   }
 
-  toOffer(hotel, destination) {
+  toOffer(hotel, destination, query = {}) {
     const property = hotel?.property;
     if (!property?.name) return null;
     const breakdown = property.priceBreakdown || {};
@@ -132,6 +132,10 @@ export class BookingComProvider extends BaseProvider {
       price: { amount: gross, base: gross, fees, total: gross + (fees || 0), currency, estimated: false },
       freshness: 'live',
       title: property.name,
+      deepLink: bookingDeepLink(property, {
+        checkin: query.checkin ?? property.checkinDate,
+        checkout: query.checkout ?? property.checkoutDate
+      }, this.affiliateId),
       affiliateId: this.affiliateId,
       details: {
         // Deliberately NOT `code`: Booking's numeric hotel ids are internal and
@@ -153,6 +157,33 @@ export class BookingComProvider extends BaseProvider {
       score: hotelScore(property)
     });
   }
+}
+
+// Builds the Booking.com deep link for a property. Prefers the property's own
+// URL when the API returns one; otherwise constructs a Booking search URL for
+// the property name + stay dates. The affiliate aid is appended when set.
+// Exported so the URL shape is directly testable.
+export function bookingDeepLink(property, stay, affiliateId) {
+  const base = propertyUrl(property) || buildBookingSearchUrl(property, stay);
+  return appendMarker(base, affiliateId, 'aid');
+}
+
+function propertyUrl(property) {
+  const url = property.url;
+  return typeof url === 'string' && url.length > 0 ? url : null;
+}
+
+function buildBookingSearchUrl(property, stay) {
+  const params = new URLSearchParams({ ss: property.name });
+  if (stay.checkin) params.set('checkin', String(stay.checkin));
+  if (stay.checkout) params.set('checkout', String(stay.checkout));
+  return `https://www.booking.com/searchresults.html?${params.toString()}`;
+}
+
+function appendMarker(url, value, param) {
+  if (!value) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}${param}=${encodeURIComponent(value)}`;
 }
 
 function clampInt(value, min, max, fallback) {

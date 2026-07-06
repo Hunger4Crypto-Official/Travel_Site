@@ -40,6 +40,26 @@ test('HotelbedsProvider returns [] without a valid city code and is unconfigured
   assert.equal(unconfigured.ready, false);
 });
 
+test('HotelbedsProvider emits a deep link only when the payload carries a URL, with the affiliate marker', async () => {
+  const fetchImpl = stubFetch(jsonResponse({ hotels: { hotels: [
+    { code: 1, name: 'A', minRate: '100', url: 'https://book.hotelbeds.com/hotel/1' },       // no query -> '?'
+    { code: 2, name: 'B', minRate: '120', url: 'https://book.hotelbeds.com/hotel/2?lang=en' }, // query -> '&'
+    { code: 3, name: 'C', minRate: '130' }                                                    // no url -> null
+  ] } }));
+  const provider = new HotelbedsProvider({ apiKey: 'K', secret: 'S', affiliateId: 'aff', fetchImpl, now: () => 0 });
+  const offers = await provider.search('hotels', { cityCode: 'PMI', checkin: '2026-07-01', checkout: '2026-07-05' });
+  assert.equal(offers[0].deepLink, 'https://book.hotelbeds.com/hotel/1?aid=aff');
+  assert.equal(offers[1].deepLink, 'https://book.hotelbeds.com/hotel/2?lang=en&aid=aff');
+  assert.equal(offers[2].deepLink, null);
+});
+
+test('HotelbedsProvider leaves a payload URL unmarked when no affiliate is configured', async () => {
+  const fetchImpl = stubFetch(jsonResponse({ hotels: { hotels: [{ code: 4, name: 'D', minRate: '90', url: 'https://book.hotelbeds.com/hotel/4' }] } }));
+  const provider = new HotelbedsProvider({ apiKey: 'K', secret: 'S', fetchImpl, now: () => 0 });
+  const offers = await provider.search('hotels', { cityCode: 'PMI', checkin: '2026-07-01', checkout: '2026-07-05' });
+  assert.equal(offers[0].deepLink, 'https://book.hotelbeds.com/hotel/4');
+});
+
 // ---- AeroDataBox -----------------------------------------------------------
 
 test('AeroDataBoxProvider looks up airports and sends RapidAPI headers', async () => {
@@ -84,6 +104,16 @@ test('TravelpayoutsProvider maps cached prices and builds deep links', async () 
   assert.equal(offers[0].deepLink, 'https://www.aviasales.com/search/LAX0107JFK1');
   assert.equal(offers[0].details.airline, 'B6');
   assert.equal(fetchImpl.calls[0].options.headers['X-Access-Token'], 'TP');
+});
+
+test('TravelpayoutsProvider appends the marker to the aviasales deep link when configured', async () => {
+  const fetchImpl = stubFetch(jsonResponse({
+    success: true,
+    data: [{ origin: 'LAX', destination: 'JFK', price: 199, link: '/search/LAX0107JFK1' }]
+  }));
+  const provider = new TravelpayoutsProvider({ token: 'TP', marker: '12345', fetchImpl });
+  const offers = await provider.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(offers[0].deepLink, 'https://www.aviasales.com/search/LAX0107JFK1?marker=12345');
 });
 
 test('HotelbedsProvider tolerates a sparse hotel record', async () => {

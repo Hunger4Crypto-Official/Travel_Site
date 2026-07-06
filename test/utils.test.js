@@ -141,7 +141,8 @@ test('createProviders adds key-based providers only when credentials are present
     aeroDataBoxKey: 'r',
     travelpayoutsToken: 't',
     skyScrapperKey: 'r',
-    bookingComKey: 'r'
+    bookingComKey: 'r',
+    carRentalKey: 'r'
   }).map((p) => p.name);
 
   assert.ok(names.includes('hotelbeds'));
@@ -149,6 +150,7 @@ test('createProviders adds key-based providers only when credentials are present
   assert.ok(names.includes('travelpayouts'));
   assert.ok(names.includes('sky-scrapper'));
   assert.ok(names.includes('booking-com'));
+  assert.ok(names.includes('car-rental'));
 });
 
 test('createProviders keeps demo prices out of verticals a real provider covers', () => {
@@ -160,11 +162,11 @@ test('createProviders keeps demo prices out of verticals a real provider covers'
 });
 
 test('createProviders excludes demo verticals for the RapidAPI providers too', () => {
-  const demo = createProviders({ skyScrapperKey: 'r', bookingComKey: 'r' })
+  const demo = createProviders({ skyScrapperKey: 'r', bookingComKey: 'r', carRentalKey: 'r' })
     .find((p) => p.name === 'the-travel-club-demo');
   assert.equal(demo.supports('flights'), false); // Sky-Scrapper covers flights
   assert.equal(demo.supports('hotels'), false);  // Booking.com covers hotels
-  assert.equal(demo.supports('cars'), true);
+  assert.equal(demo.supports('cars'), false);    // car-rental covers cars
 });
 
 test('demo serves all its verticals when no real provider is configured', () => {

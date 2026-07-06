@@ -450,6 +450,77 @@ test('priceHistorySnapshot returns stats + series, and honest emptiness before a
   assert.equal(snapshot.series.length, 2);
 });
 
+// ---- flexible-date calendar -------------------------------------------------
+
+const isoIn = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+
+class DatePricedProvider extends BaseProvider {
+  constructor(prices) { super({ name: 'datep' }); this.prices = prices; }
+  supports(type) { return type === 'flights'; }
+  async search(_type, query) {
+    const total = this.prices[query.date];
+    return total ? [{ id: `d-${query.date}`, type: 'flights', provider: 'datep', price: { amount: total, total, currency: 'USD', estimated: false }, freshness: 'live' }] : [];
+  }
+}
+
+test('flexibleSearch fans a flight search across a date window and finds the cheapest day', async () => {
+  const center = isoIn(30), before = isoIn(29), after = isoIn(31);
+  const engine = new TravelEngine({
+    providers: [new DatePricedProvider({ [before]: 250, [center]: 300, [after]: 150 })],
+    cache: new MemoryCache({ maxEntries: 0 })
+  });
+
+  const result = await engine.flexibleSearch('flights', { from: 'LAX', to: 'JFK', date: center }, {}, { flexDays: 1 });
+  assert.equal(result.calendar.length, 3);
+  assert.deepEqual(result.calendar.map((d) => d.date), [before, center, after]);
+  assert.equal(result.calendar[2].cheapest.total, 150);
+  assert.equal(result.cheapestDate, after); // 150 beats 250 and 300
+  assert.equal(result.flexDays, 1);
+});
+
+test('flexibleSearch clamps the window so it never offers a past date', async () => {
+  const today = isoIn(0), tomorrow = isoIn(1);
+  const engine = new TravelEngine({ providers: [new MockProvider({ name: 'demo' })], cache: new MemoryCache({ maxEntries: 0 }) });
+  // Center on tomorrow with flex 3: days tomorrow-3..tomorrow-1 are in the past and must be dropped.
+  const result = await engine.flexibleSearch('flights', { from: 'LAX', to: 'JFK', date: tomorrow }, {}, { flexDays: 3 });
+  assert.equal(result.calendar[0].date, today); // earliest offered day is today, not a past day
+  assert.ok(result.calendar.every((d) => d.date >= today));
+});
+
+test('flexibleSearch clamps flex to 1-7 and defaults a bad value to 3', async () => {
+  const center = isoIn(60);
+  const engine = new TravelEngine({ providers: [new MockProvider({ name: 'demo' })], cache: new MemoryCache({ maxEntries: 0 }) });
+  const wide = await engine.flexibleSearch('flights', { from: 'LAX', to: 'JFK', date: center }, {}, { flexDays: '99' });
+  assert.equal(wide.flexDays, 7); // clamped to max
+  const def = await engine.flexibleSearch('flights', { from: 'LAX', to: 'JFK', date: center }, {}, { flexDays: 'abc' });
+  assert.equal(def.flexDays, 3); // garbage -> default
+  assert.equal(def.calendar.length, 7); // 3 each side + center
+});
+
+test('flexibleSearch requires a center date and rate-limits the whole calendar once', async () => {
+  const engine = new TravelEngine({ providers: [new MockProvider({ name: 'demo' })] });
+  await assert.rejects(
+    () => engine.flexibleSearch('flights', { from: 'LAX', to: 'JFK' }, {}),
+    (err) => err.statusCode === 400 && /center date is required/.test(err.message)
+  );
+
+  const limited = new TravelEngine({
+    providers: [new MockProvider({ name: 'demo' })],
+    limiter: new TokenBucketRateLimiter({ capacity: 0, refillPerMinute: 0 })
+  });
+  await assert.rejects(
+    () => limited.flexibleSearch('flights', { from: 'LAX', to: 'JFK', date: isoIn(20) }, {}),
+    (err) => err.statusCode === 429
+  );
+});
+
+test('flexibleSearch reports when no date in the window has a priced offer', async () => {
+  const engine = new TravelEngine({ providers: [new AirportInfoProvider()], cache: new MemoryCache({ maxEntries: 0 }) });
+  const result = await engine.flexibleSearch('flights', { from: 'LAX', to: 'JFK', date: isoIn(15) }, {}, { flexDays: 2 });
+  assert.equal(result.cheapestDate, null);
+  assert.match(result.message, /No priced offers/);
+});
+
 test('priceHistorySnapshot validates type and required params, and 404s when disabled', () => {
   const engine = new TravelEngine({ providers: [], priceHistory: new PriceHistoryStore({ now: () => 0 }) });
 

@@ -50,6 +50,7 @@ export function loadConfig(env = process.env) {
     aeroDataBoxKey: env.AERODATABOX_RAPIDAPI_KEY || env.RAPIDAPI_KEY || null,
     skyScrapperKey: env.SKYSCRAPPER_RAPIDAPI_KEY || env.RAPIDAPI_KEY || null,
     bookingComKey: env.BOOKINGCOM_RAPIDAPI_KEY || env.RAPIDAPI_KEY || null,
+    carRentalKey: env.CARRENTAL_RAPIDAPI_KEY || env.RAPIDAPI_KEY || null,
     travelpayoutsToken: env.TRAVELPAYOUTS_TOKEN || null,
     travelpayoutsMarker: env.TRAVELPAYOUTS_MARKER || null,
 

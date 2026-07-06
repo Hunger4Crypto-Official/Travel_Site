@@ -91,6 +91,38 @@ paths:
             Retry-After:
               description: Seconds to wait before retrying.
               schema: { type: integer }
+  /v1/flights/calendar:
+    get:
+      summary: Cheapest comparable price per day across a date window (flexible dates).
+      parameters:
+        - in: query
+          name: from
+          required: true
+          description: Origin airport as a 3-letter IATA or 4-letter ICAO code.
+          schema: { type: string, minLength: 3, maxLength: 4, pattern: '^[A-Za-z]{3,4}$' }
+        - in: query
+          name: to
+          required: true
+          description: Destination airport as a 3-letter IATA or 4-letter ICAO code.
+          schema: { type: string, minLength: 3, maxLength: 4, pattern: '^[A-Za-z]{3,4}$' }
+        - in: query
+          name: date
+          required: true
+          description: Center date (YYYY-MM-DD). Must be today or later.
+          schema: { type: string, format: date }
+        - in: query
+          name: flex
+          description: Days to search on each side of the center date (1-7, default 3; clamped, not rejected).
+          schema: { type: integer, minimum: 1, maximum: 7 }
+      responses:
+        '200': { description: Per-day cheapest totals plus the cheapest date in the window. }
+        '400': { description: Invalid query or missing center date. }
+        '429':
+          description: Rate limit exceeded.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema: { type: integer }
   /v1/hotels/search:
     get:
       summary: Search hotel offers.

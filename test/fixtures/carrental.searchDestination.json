@@ -1,0 +1,30 @@
+{
+  "status": true,
+  "message": "Success",
+  "timestamp": 1751400000000,
+  "data": [
+    {
+      "dest_id": "20079110",
+      "name": "Las Vegas",
+      "city": "Las Vegas",
+      "country": "United States",
+      "type": "city",
+      "coordinates": {
+        "latitude": 36.114647,
+        "longitude": -115.172813
+      }
+    },
+    {
+      "dest_id": "900040025",
+      "name": "Harry Reid International Airport",
+      "city": "Las Vegas",
+      "country": "United States",
+      "type": "airport",
+      "iata": "LAS",
+      "coordinates": {
+        "latitude": 36.084,
+        "longitude": -115.1537
+      }
+    }
+  ]
+}

@@ -76,11 +76,11 @@ export class TravelpayoutsProvider extends BaseProvider {
       type: 'flights',
       provider: this.name,
       id: `travelpayouts-${entry.origin}-${entry.destination}-${entry.departure_at || index}`,
-      // Cached fare from Aviasales search history — not a verified all-in total.
+      // Cached fare from Aviasales search history, not a verified all-in total.
       price: { amount: Number(entry.price), total: Number(entry.price), currency, estimated: true },
       freshness: 'cached',
       title: `${entry.origin} → ${entry.destination}${entry.airline ? ` (${entry.airline})` : ''}`,
-      deepLink: entry.link ? `https://www.aviasales.com${entry.link}` : null,
+      deepLink: aviasalesDeepLink(entry.link, this.marker),
       affiliateId: this.affiliateId || this.marker,
       details: {
         origin: entry.origin ?? null,
@@ -95,4 +95,14 @@ export class TravelpayoutsProvider extends BaseProvider {
       score: Number.isFinite(Number(entry.transfers)) ? 100 - Number(entry.transfers) * 10 : null
     });
   }
+}
+
+// Builds the Aviasales booking handoff URL from the cached entry's relative
+// link, appending the affiliate marker as ?marker=... when configured. The
+// relative link carries no query string, so a plain `?marker=` is always safe.
+// Exported so the URL shape is directly testable.
+export function aviasalesDeepLink(link, marker) {
+  if (!link) return null;
+  const url = `https://www.aviasales.com${link}`;
+  return marker ? `${url}?marker=${encodeURIComponent(marker)}` : url;
 }

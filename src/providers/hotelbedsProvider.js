@@ -96,6 +96,10 @@ export class HotelbedsProvider extends BaseProvider {
       price: { amount: Number(hotel.minRate), total: Number(hotel.minRate), currency: hotel.currency || 'USD', estimated: true },
       freshness: 'live',
       title: hotel.name || `Hotel ${hotel.code}`,
+      // Hotelbeds is a wholesale API without consumer booking URLs, so a deep
+      // link exists only when the payload carries one; the affiliate marker is
+      // appended when both a URL and an affiliateId are present.
+      deepLink: hotelbedsDeepLink(hotel, this.affiliateId),
       affiliateId: this.affiliateId,
       details: {
         code: hotel.code ?? null,
@@ -107,6 +111,21 @@ export class HotelbedsProvider extends BaseProvider {
       score: categoryScore(hotel.categoryName)
     });
   }
+}
+
+// Returns a booking URL only when the payload provides one; otherwise null.
+// The affiliate marker is appended when both a URL and an affiliateId are set.
+// Exported so the URL shape is directly testable.
+export function hotelbedsDeepLink(hotel, affiliateId) {
+  const url = hotel.url;
+  if (typeof url !== 'string' || url.length === 0) return null;
+  return appendMarker(url, affiliateId, 'aid');
+}
+
+function appendMarker(url, value, param) {
+  if (!value) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}${param}=${encodeURIComponent(value)}`;
 }
 
 function clampInt(value, min, max, fallback) {

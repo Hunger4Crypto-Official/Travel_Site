@@ -26,6 +26,7 @@ test('loadConfig applies safe defaults with an empty environment', () => {
   assert.equal(config.aeroDataBoxKey, null);
   assert.equal(config.skyScrapperKey, null);
   assert.equal(config.bookingComKey, null);
+  assert.equal(config.carRentalKey, null);
   assert.equal(config.travelpayoutsToken, null);
   assert.equal(config.travelpayoutsMarker, null);
 
@@ -84,6 +85,7 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
   assert.equal(config.aeroDataBoxKey, 'adb-specific'); // specific beats shared
   assert.equal(config.skyScrapperKey, 'shared');       // shared fallback fills the gap
   assert.equal(config.bookingComKey, 'bk-specific');
+  assert.equal(config.carRentalKey, 'shared');         // shared RapidAPI key covers cars too
   assert.equal(config.travelpayoutsToken, 'tp-token');
   assert.equal(config.travelpayoutsMarker, 'tp-marker');
 

@@ -116,11 +116,11 @@ export class SkyScrapperProvider extends BaseProvider {
     }
     const itineraries = Array.isArray(payload?.data?.itineraries) ? payload.data.itineraries : [];
     return itineraries.slice(0, MAX_ITINERARIES)
-      .map((itinerary) => this.toOffer(itinerary))
+      .map((itinerary) => this.toOffer(itinerary, query))
       .filter(Boolean);
   }
 
-  toOffer(itinerary) {
+  toOffer(itinerary, query = {}) {
     const total = Number(itinerary?.price?.raw);
     if (!Number.isFinite(total)) return null;
 
@@ -139,6 +139,12 @@ export class SkyScrapperProvider extends BaseProvider {
       ? `${firstLeg.origin?.displayCode || '?'} → ${firstLeg.destination?.displayCode || '?'}`
       : 'Flight';
 
+    // Route + date the offer represents, falling back to the search query so a
+    // priced offer always yields an actionable Skyscanner deep link.
+    const from = firstLeg?.origin?.displayCode || firstLeg?.origin?.flightPlaceId || query.from;
+    const to = firstLeg?.destination?.displayCode || firstLeg?.destination?.flightPlaceId || query.to;
+    const date = firstLeg?.departure || query.date;
+
     return normalizeOffer({
       type: 'flights',
       provider: this.name,
@@ -147,6 +153,7 @@ export class SkyScrapperProvider extends BaseProvider {
       price: { amount: total, total, currency: this.currency, estimated: false },
       freshness: 'live',
       title: `${route}${carrierName ? ` (${carrierName})` : ''}`,
+      deepLink: skyscannerDeepLink(itinerary, { from, to, date }, this.affiliateId),
       affiliateId: this.affiliateId,
       details: {
         segments,
@@ -159,6 +166,41 @@ export class SkyScrapperProvider extends BaseProvider {
       score: Number.isFinite(Number(itinerary.score)) ? Math.round(Number(itinerary.score) * 100) : 100 - stops * 10
     });
   }
+}
+
+// Builds the Skyscanner deep link for an itinerary. Prefers a booking/pricing
+// URL carried by the itinerary; otherwise constructs a stable Skyscanner search
+// URL from the route + date. The affiliate marker is appended when configured.
+// Exported so the URL shape is directly testable.
+export function skyscannerDeepLink(itinerary, route, affiliateId) {
+  const base = directBookingUrl(itinerary) || buildSkyscannerSearchUrl(route);
+  return appendMarker(base, affiliateId, 'associateid');
+}
+
+function directBookingUrl(itinerary) {
+  const options = Array.isArray(itinerary.pricingOptions) ? itinerary.pricingOptions : [];
+  const url = options[0]?.url;
+  return typeof url === 'string' && url.length > 0 ? url : null;
+}
+
+function buildSkyscannerSearchUrl({ from, to, date }) {
+  const origin = String(from).toLowerCase();
+  const destination = String(to).toLowerCase();
+  const day = toYymmdd(date);
+  const path = day ? `${origin}/${destination}/${day}` : `${origin}/${destination}`;
+  return `https://www.skyscanner.net/transport/flights/${path}/`;
+}
+
+// A YYYY-MM-DD(...) date reduces to Skyscanner's yymmdd path segment.
+function toYymmdd(date) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(date || ''));
+  return match ? `${match[1].slice(2)}${match[2]}${match[3]}` : '';
+}
+
+function appendMarker(url, value, param) {
+  if (!value) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}${param}=${encodeURIComponent(value)}`;
 }
 
 function clampInt(value, min, max, fallback) {

@@ -31,12 +31,12 @@ Hopper's $35M settlement, Fareportal's fabricated scarcity counters). This engin
 commitments and enforces each one in the API contract:
 
 - **`GET /v1/trust`** returns the machine-readable manifest: all-in pricing, no fake urgency, no
-  paid ranking, freshness disclosure, honest failures, and price context — each with the mechanism
-  that enforces it.
+  paid ranking, freshness disclosure, honest failures, and price context (each with the mechanism
+  that enforces it).
 - **`ranking: { basis, paidPlacement: false }`** is published on every search response.
 - **Price memory**: every search records the cheapest *real* price (demo data is never recorded).
-  Once 3+ samples exist, responses carry `priceContext` — "current $289 is 12% below the 30-day
-  average" — with a ±5% band so tiny wobbles read as "near average", not hype. History is queryable
+  Once 3+ samples exist, responses carry `priceContext` ("current $289 is 12% below the 30-day
+  average") with a +/-5% band so tiny wobbles read as "near average", not hype. History is queryable
   at `/v1/prices/history` and optionally persists to a JSONL file (`PRICE_HISTORY_FILE`).
 
 ## Lowest-price comparison
@@ -100,6 +100,7 @@ GET /metrics
 GET /v1/trust               # public machine-readable trust commitments
 GET /v1/flights/search?from=LAX&to=JFK&date=2027-05-01
 GET /v1/flights/search?from=LAX&to=JFK&date=2027-05-01&sort=score&limit=5
+GET /v1/flights/calendar?from=LAX&to=JFK&date=2027-05-01&flex=3   # cheapest price per day (+/- flex days)
 GET /v1/hotels/search?city=Las%20Vegas&cityCode=LAS&checkin=2027-05-01&checkout=2027-05-05
 GET /v1/cars/search?city=Miami&date=2027-05-01
 GET /v1/prices/history?type=flights&from=LAX&to=JFK
@@ -107,7 +108,7 @@ GET /v1/airport/info?code=LAX
 GET /v1/flights/live?icao24=4b1814
 ```
 
-The dates above are placeholders — use any date that is today or later (past dates return a `400`).
+The dates above are placeholders; use any date that is today or later (past dates return a `400`).
 `GET /` returns the same examples with live, always-valid future dates. Flight `from`/`to` and the
 airport `code` are 3-letter IATA or 4-letter ICAO codes; hotels and cars accept a free-text `city`.
 
@@ -163,7 +164,7 @@ request returns `429` with a `Retry-After` header; `405` responses include an `A
 
 `count` is the number of offers returned (after any `limit`); `total` is how many matched before
 limiting. `message` appears when nothing matched, when results include estimated/demo prices, or
-when some sources were unavailable — so a zero-result response tells you whether the search was
+when some sources were unavailable, so a zero-result response tells you whether the search was
 genuinely empty or whether providers were down. Each entry in `providers` is `success` or `error`;
 an errored entry carries a coarse `error` category (`timeout`, `auth`, `rate_limited`, or
 `unavailable`) with no internal detail. Every response (success or error) carries `meta.requestId`
@@ -301,14 +302,17 @@ enforces per-provider timeouts and a response-size ceiling.
 | ADS-B (adsb.lol, airplanes.live) | tracking | none | Community ADS-B fallbacks alongside OpenSky. |
 | Sky-Scrapper (RapidAPI) | flights | `SKYSCRAPPER_RAPIDAPI_KEY` or `RAPIDAPI_KEY` | **Live** Skyscanner prices (all-in totals). Resolves the airport codes to Skyscanner ids automatically. |
 | Booking.com (RapidAPI) | hotels | `BOOKINGCOM_RAPIDAPI_KEY` or `RAPIDAPI_KEY` | Live availability; all-in total = gross + excluded charges. Free-text `city`. |
+| Booking.com cars (RapidAPI) | cars | `CARRENTAL_RAPIDAPI_KEY` or `RAPIDAPI_KEY` | Live car-rental "from" rates (marked `estimated`); resolves the city to pickup coordinates. |
 | Hotelbeds APItude | hotels | `HOTELBEDS_API_KEY`, `HOTELBEDS_SECRET` | SHA256-signed; accepts `cityCode` or a resolvable `city`. `HOTELBEDS_ENV=test\|production`. |
 | AeroDataBox (RapidAPI) | airports | `AERODATABOX_RAPIDAPI_KEY` or `RAPIDAPI_KEY` | Live airport detail enrichment. |
 | Travelpayouts Data API | flights | `TRAVELPAYOUTS_TOKEN` (`TRAVELPAYOUTS_MARKER`) | Cached cheapest fares (7-day cache). |
 
-`RAPIDAPI_KEY` is a shared fallback: one RapidAPI key unlocks every RapidAPI-hosted provider your
-account is subscribed to (Sky-Scrapper, Booking.com, AeroDataBox). With Sky-Scrapper + Travelpayouts
+Every priced offer now carries a `deepLink` (the booking handoff), with the affiliate marker
+appended when one is configured, so a compared price is actually bookable. `RAPIDAPI_KEY` is a
+shared fallback: one RapidAPI key unlocks every RapidAPI-hosted provider your account is subscribed
+to (Sky-Scrapper, Booking.com, Booking.com cars, AeroDataBox). With Sky-Scrapper + Travelpayouts
 configured, flights become a genuine multi-provider price race (live vs cached); with Booking.com +
-Hotelbeds, hotels do too.
+Hotelbeds, hotels do too; and cars stop being demo-only.
 
 > **Aviationstack** is intentionally not wired: its endpoints key on a flight *number*, not the
 > `icao24` transponder hex the tracking vertical uses, so it cannot map cleanly to the current

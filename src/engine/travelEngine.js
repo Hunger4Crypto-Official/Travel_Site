@@ -60,6 +60,12 @@ export class TravelEngine {
   async search(type, query = {}, context = {}) {
     // Rate limit per client before doing validation/aggregation work so abusive
     // traffic is shed as early and cheaply as possible.
+    this.consumeRateLimit(type, context);
+    const validatedQuery = validateQuery(type, query, { maxQueryLength: this.maxQueryLength });
+    return this.runCached(type, validatedQuery);
+  }
+
+  consumeRateLimit(type, context = {}) {
     const clientKey = context.clientKey || 'global';
     if (!this.limiter.consume(clientKey)) {
       this.metrics.increment('search.rate_limited', { type });
@@ -69,20 +75,62 @@ export class TravelEngine {
       err.publicDetails = { retryAfter: err.retryAfter };
       throw err;
     }
+  }
 
-    const validatedQuery = validateQuery(type, query, { maxQueryLength: this.maxQueryLength });
+  // Cache-aware execution shared by search() and the flexible-date calendar, so
+  // a date already fetched by a normal search is reused by the calendar and vice
+  // versa. Assumes the query is already validated.
+  async runCached(type, validatedQuery) {
     const cacheKey = stableCacheKey(type, validatedQuery);
     const cached = this.cache.get(cacheKey);
     if (cached !== undefined) {
       this.metrics.increment('search.cache_hit', { type });
       return cached;
     }
-
     this.metrics.increment('search.cache_miss', { type });
     const startedAt = Date.now();
     const value = await this.executeSearch(type, validatedQuery);
     this.metrics.observe('search.duration_ms', Date.now() - startedAt, { type });
     return this.cache.set(cacheKey, value);
+  }
+
+  // Flexible-date price calendar: fans a flight search across date +/- flexDays
+  // (clamped to today onward) and returns the cheapest comparable total per day
+  // so a traveler can see whether a nearby date is cheaper. One rate-limit token
+  // covers the whole calendar; per-day results are cache-shared with search().
+  async flexibleSearch(type, query = {}, context = {}, { flexDays } = {}) {
+    this.consumeRateLimit(type, context);
+    const base = validateQuery(type, query, { maxQueryLength: this.maxQueryLength });
+    if (!base.date) {
+      throw httpError(400, 'A center date is required for a flexible-date calendar', { field: 'date' });
+    }
+    const flex = clampFlex(flexDays);
+    const dates = dateWindow(base.date, flex, Date.now());
+
+    const calendar = [];
+    for (const date of dates) {
+      const result = await this.runCached(type, { ...base, date });
+      const cheapest = result.cheapest
+        ? {
+          total: result.cheapest.price.total,
+          currency: result.cheapest.price.currency,
+          provider: result.cheapest.provider,
+          estimated: result.cheapest.price.estimated
+        }
+        : null;
+      calendar.push({ date, count: result.count, currency: result.currency, freshness: result.freshness, priceComparable: result.priceComparable, cheapest });
+    }
+
+    const priced = calendar.filter((day) => day.cheapest);
+    const cheapestDay = priced.reduce((best, day) => (!best || day.cheapest.total < best.cheapest.total ? day : best), null);
+    return {
+      type,
+      query: base,
+      flexDays: flex,
+      calendar,
+      cheapestDate: cheapestDay ? cheapestDay.date : null,
+      ...(priced.length === 0 ? { message: 'No priced offers were found on any date in the window.' } : {})
+    };
   }
 
   async executeSearch(type, query) {
@@ -299,6 +347,27 @@ function clampLimit(value) {
   // validateQuery has already guaranteed a 1-50 integer when limit is present.
   if (value === undefined || value === null || value === '') return null;
   return Number.parseInt(value, 10);
+}
+
+// Flex window is a convenience, so an out-of-range value is clamped (1-7 days
+// each side) rather than rejected; a missing/garbage value defaults to 3.
+function clampFlex(value) {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return 3;
+  return Math.min(7, Math.max(1, n));
+}
+
+// Dates from centerIso-flex to centerIso+flex, dropping any day before today so
+// the calendar never offers a past date (which search would reject anyway).
+function dateWindow(centerIso, flex, now) {
+  const todayIso = new Date(now).toISOString().slice(0, 10);
+  const center = Date.parse(`${centerIso}T00:00:00.000Z`);
+  const days = [];
+  for (let offset = -flex; offset <= flex; offset += 1) {
+    const iso = new Date(center + offset * 86400000).toISOString().slice(0, 10);
+    if (iso >= todayIso) days.push(iso);
+  }
+  return days;
 }
 
 // Maps a provider failure to a coarse, non-sensitive category so integrators can

@@ -8,7 +8,8 @@ const integerSettings = [
   ['PROVIDER_FAILURE_THRESHOLD', 3],
   ['PROVIDER_COOLDOWN_MS', 30000],
   ['MAX_QUERY_LENGTH', 120],
-  ['CURRENCY_TTL_MS', 3600000]
+  ['CURRENCY_TTL_MS', 3600000],
+  ['PRICE_HISTORY_MAX_ENTRIES', 5000]
 ];
 
 export function loadConfig(env = process.env) {
@@ -55,7 +56,12 @@ export function loadConfig(env = process.env) {
     // Currency normalization
     currencyConversionEnabled: env.CURRENCY_CONVERSION_ENABLED === 'true',
     baseCurrency: (env.BASE_CURRENCY || 'USD').toUpperCase(),
-    currencyTtlMs: values.CURRENCY_TTL_MS
+    currencyTtlMs: values.CURRENCY_TTL_MS,
+
+    // Price memory ("vs. recent average" context + /v1/prices/history)
+    priceHistoryEnabled: env.PRICE_HISTORY_ENABLED !== 'false',
+    priceHistoryFile: env.PRICE_HISTORY_FILE || null,
+    priceHistoryMaxEntries: values.PRICE_HISTORY_MAX_ENTRIES
   };
 }
 

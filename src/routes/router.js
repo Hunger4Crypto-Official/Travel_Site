@@ -18,7 +18,7 @@ const routeMap = new Map([
 
 // Versioned routes advertised in discovery responses (the unversioned aliases
 // stay available but are not promoted).
-const advertisedRoutes = [...routeMap.keys()].filter((path) => path.startsWith('/v1/'));
+const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/prices/history', '/v1/trust'];
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
@@ -62,6 +62,13 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     return ok(200, { ok: true, brand: brand.name });
   }
 
+  // The trust manifest is deliberately public: published commitments are only
+  // worth something when anyone can read them.
+  if (pathname === '/v1/trust') {
+    res.setHeader('cache-control', 'public, max-age=300');
+    return ok(200, trustManifest(brand));
+  }
+
   if (openapiPaths.has(pathname)) {
     if (!openapiSpec) return fail(404, 'OpenAPI specification is not available', { path: pathname });
     res.setHeader('cache-control', 'public, max-age=300');
@@ -85,13 +92,18 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     return ok(200, engine.metricsSnapshot());
   }
 
-  const type = routeMap.get(pathname);
-  if (!type) {
-    return fail(404, 'Route not found', { path: pathname, availableRoutes: advertisedRoutes });
-  }
-
   try {
     const query = Object.fromEntries(url.searchParams.entries());
+
+    if (pathname === '/v1/prices/history') {
+      return ok(200, engine.priceHistorySnapshot(query.type, query), { principal: auth.principal });
+    }
+
+    const type = routeMap.get(pathname);
+    if (!type) {
+      return fail(404, 'Route not found', { path: pathname, availableRoutes: advertisedRoutes });
+    }
+
     // Rate-limit per authenticated principal when available, else per client IP.
     const clientKey = auth.principal && auth.principal !== 'anonymous' ? auth.principal : clientIp(req);
     const data = await engine.search(type, query, { clientKey });
@@ -126,12 +138,56 @@ function serviceIndex(brand, now = Date.now()) {
       health: '/health',
       readiness: '/ready',
       metrics: '/metrics',
+      trust: '/v1/trust',
       flights: `/v1/flights/search?from=LAX&to=JFK&date=${depart}`,
       hotels: `/v1/hotels/search?city=Las%20Vegas&checkin=${checkin}&checkout=${checkout}`,
       cars: `/v1/cars/search?city=Miami&date=${carDate}`,
+      priceHistory: '/v1/prices/history?type=flights&from=LAX&to=JFK',
       airport: '/v1/airport/info?code=LAX',
       tracking: '/v1/flights/live?icao24=4b1814'
     }
+  };
+}
+
+// Machine-readable trust commitments, each tied to the API mechanism that
+// enforces it. Derived from docs/research/competitive-landscape.md: trusted
+// travel brands convert hidden costs into explicit, published commitments.
+function trustManifest(brand) {
+  return {
+    service: brand.name,
+    manifesto: 'Compare honestly or say why we cannot.',
+    commitments: [
+      {
+        id: 'all-in-pricing',
+        promise: 'Every price is an all-in total (base + taxes + fees), or it is explicitly marked as an estimate.',
+        mechanism: 'offer.price.total with offer.price.estimated; response-level priceComparable never overclaims.'
+      },
+      {
+        id: 'no-fake-urgency',
+        promise: 'No countdown timers, scarcity counters, or social-proof numbers. Ever.',
+        mechanism: 'No such fields exist anywhere in the API contract.'
+      },
+      {
+        id: 'no-paid-ranking',
+        promise: 'Ranking is cheapest comparable total first. Placement cannot be bought.',
+        mechanism: 'ranking.paidPlacement=false is published on every search response.'
+      },
+      {
+        id: 'freshness-disclosure',
+        promise: 'Every offer is labeled live, cached, or demo. Placeholder data never poses as a real quote.',
+        mechanism: 'offer.freshness and response-level freshness.'
+      },
+      {
+        id: 'honest-failures',
+        promise: 'When data sources fail, we say so instead of pretending there were no results.',
+        mechanism: 'providers[].status with a coarse error category, and an explicit response message.'
+      },
+      {
+        id: 'price-context',
+        promise: 'When we have enough history, we tell you how today’s price compares to the recent average.',
+        mechanism: 'priceContext appears once at least 3 samples exist for a search; demo prices are never recorded.'
+      }
+    ]
   };
 }
 

@@ -34,6 +34,13 @@ paths:
       responses:
         '200':
           description: Process is alive.
+  /v1/trust:
+    get:
+      security: []
+      summary: Public trust manifest, machine-readable commitments and the API mechanism enforcing each.
+      responses:
+        '200':
+          description: The published commitments (all-in pricing, no fake urgency, no paid ranking, freshness disclosure, honest failures, price context).
   /ready:
     get:
       summary: Internal readiness and provider diagnostics.
@@ -148,6 +155,37 @@ paths:
             Retry-After:
               description: Seconds to wait before retrying.
               schema: { type: integer }
+  /v1/prices/history:
+    get:
+      summary: Recent cheapest-price history for a search (30-day window).
+      parameters:
+        - in: query
+          name: type
+          required: true
+          schema: { type: string, enum: [flights, hotels, cars] }
+        - in: query
+          name: from
+          description: Origin airport code (required when type=flights).
+          schema: { type: string, minLength: 3, maxLength: 4 }
+        - in: query
+          name: to
+          description: Destination airport code (required when type=flights).
+          schema: { type: string, minLength: 3, maxLength: 4 }
+        - in: query
+          name: city
+          description: City (required when type=hotels or type=cars).
+          schema: { type: string, minLength: 1, maxLength: 120 }
+        - in: query
+          name: checkin
+          description: Optional stay start; hotels aggregate per stay length.
+          schema: { type: string, format: date }
+        - in: query
+          name: checkout
+          schema: { type: string, format: date }
+      responses:
+        '200': { description: Samples, average, lowest, latest, and a recent series. }
+        '400': { description: Invalid or missing parameters. }
+        '404': { description: Price history is disabled. }
   /v1/airport/info:
     get:
       summary: Look up airport information.

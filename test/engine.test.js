@@ -8,6 +8,7 @@ import { rankOffers } from '../src/engine/ranking.js';
 import { stableCacheKey, validateQuery } from '../src/engine/queryValidation.js';
 import { MemoryCache } from '../src/utils/cache.js';
 import { CurrencyConverter } from '../src/utils/currency.js';
+import { PriceHistoryStore } from '../src/utils/priceHistory.js';
 import { TokenBucketRateLimiter, KeyedRateLimiter } from '../src/utils/rateLimit.js';
 
 class ThrowingProvider extends BaseProvider {
@@ -332,6 +333,132 @@ test('TravelEngine keeps original prices when currency rates fail to load', asyn
 
   const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
   assert.equal(result.offers[0].price.currency, 'EUR');
+});
+
+// ---- price memory + trust fields --------------------------------------------
+
+// An uncached engine so repeated identical searches hit providers (and the
+// price-history store) every time.
+function priceMemoryEngine(providers, priceHistory) {
+  return new TravelEngine({ providers, priceHistory, cache: new MemoryCache({ maxEntries: 0 }) });
+}
+
+test('TravelEngine publishes the no-paid-placement ranking policy on every search', async () => {
+  const engine = new TravelEngine({ providers: [new MockProvider({ name: 'demo' })] });
+  const result = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.deepEqual(result.ranking, { basis: 'comparable all-in total', paidPlacement: false });
+});
+
+test('TravelEngine records real cheapest prices and adds priceContext after 3 samples', async () => {
+  const store = new PriceHistoryStore({ now: () => 1000 });
+  const engine = priceMemoryEngine([
+    new FixedPriceProvider('real', [{ id: 'r1', type: 'flights', price: { amount: 200, total: 200, currency: 'USD' }, freshness: 'live' }])
+  ], store);
+
+  const first = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(first.priceContext, undefined); // 1 sample: too little history to be honest
+  await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  const third = await engine.search('flights', { from: 'LAX', to: 'JFK' });
+
+  assert.equal(store.entries.length, 3);
+  assert.equal(store.entries[0].key, 'LAX-JFK');
+  assert.deepEqual(third.priceContext, {
+    key: 'LAX-JFK',
+    windowDays: 30,
+    samples: 3,
+    average: 200,
+    lowest: 200,
+    current: 200,
+    currency: 'USD',
+    deltaPercent: 0,
+    position: 'near average'
+  });
+});
+
+test('TravelEngine priceContext reports below/above average with a 5% honesty band', async () => {
+  const store = new PriceHistoryStore({ now: () => 1000 });
+  // Seed history so the live search compares against a known average.
+  store.record({ type: 'flights', key: 'LAX-JFK', currency: 'USD', total: 300, provider: 'seed' });
+  store.record({ type: 'flights', key: 'LAX-JFK', currency: 'USD', total: 300, provider: 'seed' });
+
+  const cheap = priceMemoryEngine([
+    new FixedPriceProvider('real', [{ id: 'r1', type: 'flights', price: { amount: 150, total: 150, currency: 'USD' }, freshness: 'live' }])
+  ], store);
+  const below = await cheap.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(below.priceContext.position, 'below average'); // 150 vs avg 250 -> -40%
+  assert.equal(below.priceContext.deltaPercent, -40);
+
+  const expensive = priceMemoryEngine([
+    new FixedPriceProvider('real', [{ id: 'r2', type: 'flights', price: { amount: 600, total: 600, currency: 'USD' }, freshness: 'live' }])
+  ], store);
+  const above = await expensive.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(above.priceContext.position, 'above average');
+});
+
+test('TravelEngine never records demo prices into history', async () => {
+  const store = new PriceHistoryStore({ now: () => 1000 });
+  const engine = priceMemoryEngine([new MockProvider({ name: 'demo' })], store);
+
+  await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  await engine.search('flights', { from: 'LAX', to: 'JFK' });
+  await engine.search('flights', { from: 'LAX', to: 'JFK' });
+
+  assert.deepEqual(store.entries, []); // placeholder prices must never pollute history
+});
+
+test('TravelEngine skips recording without a store, without a key, or without offers', async () => {
+  const store = new PriceHistoryStore({ now: () => 1000 });
+
+  // No store configured: search still works and includes no context.
+  const noStore = priceMemoryEngine([new MockProvider({ name: 'demo' })], null);
+  assert.equal((await noStore.search('flights', { from: 'LAX', to: 'JFK' })).priceContext, undefined);
+
+  // Airports have no meaningful price key (key builder returns null).
+  const airports = priceMemoryEngine([new AirportInfoProvider()], store);
+  await airports.search('airports', { code: 'LAX' });
+  assert.deepEqual(store.entries, []);
+
+  // A keyed vertical with zero offers has no cheapest -> nothing to record.
+  const empty = priceMemoryEngine([new FixedPriceProvider('none', [])], store);
+  await empty.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.deepEqual(store.entries, []);
+
+  // A cheapest offer without a finite comparable total is never recorded.
+  const unpriceable = priceMemoryEngine([
+    new FixedPriceProvider('odd', [{ id: 'o1', type: 'flights', price: { amount: 100 }, freshness: 'live' }])
+  ], store);
+  const result = await unpriceable.search('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(result.priceContext, undefined);
+  assert.deepEqual(store.entries, []);
+});
+
+test('priceHistorySnapshot returns stats + series, and honest emptiness before any data', () => {
+  const store = new PriceHistoryStore({ now: () => 1000 });
+  const engine = new TravelEngine({ providers: [], priceHistory: store });
+
+  const empty = engine.priceHistorySnapshot('flights', { from: 'LAX', to: 'JFK' });
+  assert.equal(empty.samples, 0);
+  assert.match(empty.message, /No price history recorded yet/);
+
+  store.record({ type: 'flights', key: 'LAX-JFK', currency: 'USD', total: 100, provider: 'a' });
+  store.record({ type: 'flights', key: 'LAX-JFK', currency: 'USD', total: 140, provider: 'b' });
+  const snapshot = engine.priceHistorySnapshot('flights', { from: 'LAX', to: 'JFK' });
+
+  assert.equal(snapshot.currency, 'USD');
+  assert.equal(snapshot.samples, 2);
+  assert.equal(snapshot.average, 120);
+  assert.equal(snapshot.series.length, 2);
+});
+
+test('priceHistorySnapshot validates type and required params, and 404s when disabled', () => {
+  const engine = new TravelEngine({ providers: [], priceHistory: new PriceHistoryStore({ now: () => 0 }) });
+
+  assert.throws(() => engine.priceHistorySnapshot('cruises', {}), (err) => err.statusCode === 400 && /Invalid type/.test(err.message));
+  assert.throws(() => engine.priceHistorySnapshot('flights', { from: 'LAX' }), (err) => err.statusCode === 400 && /from and to/.test(err.message));
+  assert.throws(() => engine.priceHistorySnapshot('hotels', {}), (err) => err.statusCode === 400 && /city/.test(err.message));
+
+  const disabled = new TravelEngine({ providers: [] });
+  assert.throws(() => disabled.priceHistorySnapshot('flights', { from: 'LAX', to: 'JFK' }), (err) => err.statusCode === 404);
 });
 
 test('TravelEngine exposes readiness with provider health', () => {

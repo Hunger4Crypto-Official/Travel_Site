@@ -12,12 +12,16 @@ import { createLogger } from './src/observability/logger.js';
 import { MetricsRegistry } from './src/observability/metrics.js';
 import { ProviderCircuitBreaker } from './src/engine/providerCircuitBreaker.js';
 import { CurrencyConverter } from './src/utils/currency.js';
+import { PriceHistoryStore } from './src/utils/priceHistory.js';
 
 loadDotEnv({ path: new URL('./.env', import.meta.url).pathname });
 const config = loadConfig();
 const logger = createLogger({ level: config.requestLogLevel });
 const currencyConverter = config.currencyConversionEnabled
   ? new CurrencyConverter({ base: config.baseCurrency, ttlMs: config.currencyTtlMs })
+  : null;
+const priceHistory = config.priceHistoryEnabled
+  ? new PriceHistoryStore({ filePath: config.priceHistoryFile, maxEntries: config.priceHistoryMaxEntries })
   : null;
 const engine = new TravelEngine({
   providers: createProviders(config),
@@ -28,6 +32,7 @@ const engine = new TravelEngine({
   maxQueryLength: config.maxQueryLength,
   currencyConverter,
   baseCurrency: config.currencyConversionEnabled ? config.baseCurrency : null,
+  priceHistory,
   logger
 });
 

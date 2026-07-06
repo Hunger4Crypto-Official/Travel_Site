@@ -6,6 +6,11 @@ import { ProviderCircuitBreaker } from './providerCircuitBreaker.js';
 import { MemoryCache } from '../utils/cache.js';
 import { KeyedRateLimiter } from '../utils/rateLimit.js';
 import { MetricsRegistry } from '../observability/metrics.js';
+import { priceHistoryKey } from '../utils/priceHistory.js';
+
+// Published on every search response: ranking is cheapest-comparable-total
+// first and placement can never be bought. See /v1/trust.
+const RANKING_POLICY = Object.freeze({ basis: 'comparable all-in total', paidPlacement: false });
 
 export class TravelEngine {
   constructor({
@@ -17,6 +22,7 @@ export class TravelEngine {
     maxQueryLength = 120,
     currencyConverter = null,
     baseCurrency = null,
+    priceHistory = null,
     logger = null
   } = {}) {
     this.providers = providers;
@@ -27,6 +33,7 @@ export class TravelEngine {
     this.maxQueryLength = maxQueryLength;
     this.currencyConverter = currencyConverter;
     this.baseCurrency = baseCurrency ? baseCurrency.toUpperCase() : null;
+    this.priceHistory = priceHistory;
     this.logger = logger;
   }
 
@@ -110,6 +117,7 @@ export class TravelEngine {
 
     const attempted = allResults.length;
     const errored = allResults.filter((result) => result.error).length;
+    const priceContext = this.recordAndContextualize(type, query, normalizedOffers, summary);
 
     return {
       query,
@@ -119,13 +127,79 @@ export class TravelEngine {
       currency: summary.currency,
       priceComparable: summary.priceComparable,
       freshness: summary.freshness,
+      ranking: RANKING_POLICY,
       cheapest: summary.cheapest,
       bestByProvider: summary.bestByProvider,
+      ...(priceContext ? { priceContext } : {}),
       offers,
       providers: allResults.map(({ provider, error }) => (
         error ? { provider, status: 'error', error } : { provider, status: 'success' }
       )),
       ...(buildMessage(type, ranked.length, summary, { attempted, errored }))
+    };
+  }
+
+  // Records the cheapest REAL price for this search (never demo data) and, once
+  // at least three samples exist for the same key and currency inside the
+  // window, returns honest "vs. recent average" context for the response.
+  recordAndContextualize(type, query, offers, summary) {
+    if (!this.priceHistory || !summary.cheapest) return null;
+    const key = priceHistoryKey(type, query);
+    if (!key) return null;
+
+    // cheapest is derived from this same offers array (priced offers only), so
+    // the lookup always hits and price is always present.
+    const cheapestOffer = offers.find((offer) => offer.id === summary.cheapest.offerId);
+    const total = summary.cheapest.price.total;
+    if (cheapestOffer.freshness === 'demo' || !Number.isFinite(total)) return null;
+
+    const currency = summary.cheapest.price.currency;
+    this.priceHistory.record({ type, key, currency, total, provider: summary.cheapest.provider });
+
+    const stats = this.priceHistory.stats({ type, key, currency });
+    if (!stats || stats.samples < 3) return null;
+
+    const deltaPercent = Math.round(((total - stats.average) / stats.average) * 100);
+    return {
+      key,
+      windowDays: 30,
+      samples: stats.samples,
+      average: stats.average,
+      lowest: stats.lowest,
+      current: total,
+      currency,
+      deltaPercent,
+      position: pricePosition(deltaPercent)
+    };
+  }
+
+  // Read-side of price memory for GET /v1/prices/history.
+  priceHistorySnapshot(type, query = {}) {
+    if (!this.priceHistory) {
+      throw httpError(404, 'Price history is not enabled', { setting: 'PRICE_HISTORY_ENABLED' });
+    }
+    if (!['flights', 'hotels', 'cars'].includes(type)) {
+      throw httpError(400, 'Invalid type. Expected one of: flights, hotels, cars', { field: 'type', allowed: ['flights', 'hotels', 'cars'] });
+    }
+    const key = priceHistoryKey(type, query);
+    if (!key) {
+      const needed = type === 'flights' ? 'from and to' : 'city';
+      throw httpError(400, `Missing required query parameter(s) for ${type} history: ${needed}`, { type });
+    }
+
+    const latest = this.priceHistory.latestFor(type, key);
+    if (!latest) {
+      return { type, key, samples: 0, message: 'No price history recorded yet for this search.' };
+    }
+    const currency = latest.currency;
+    const stats = this.priceHistory.stats({ type, key, currency });
+    return {
+      type,
+      key,
+      currency,
+      windowDays: 30,
+      ...stats,
+      series: this.priceHistory.series({ type, key, currency })
     };
   }
 
@@ -204,6 +278,21 @@ export class TravelEngine {
 
 function roundMoney(amount) {
   return Math.round(amount * 100) / 100;
+}
+
+// A 5% band around the recent average keeps the label honest: tiny wobbles are
+// "near average", not breathless "below average!" claims.
+function pricePosition(deltaPercent) {
+  if (deltaPercent <= -5) return 'below average';
+  if (deltaPercent >= 5) return 'above average';
+  return 'near average';
+}
+
+function httpError(statusCode, message, details) {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  err.details = details;
+  return err;
 }
 
 function clampLimit(value) {

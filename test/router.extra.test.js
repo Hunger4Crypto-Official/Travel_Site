@@ -12,7 +12,8 @@ function fakeEngine(overrides = {}) {
   return {
     search: overrides.search || (async () => ({ query: {}, count: 0, offers: [], providers: [] })),
     readiness: overrides.readiness || (() => ({ ok: true, providers: [] })),
-    metricsSnapshot: overrides.metricsSnapshot || (() => ({ counters: {}, timings: {} }))
+    metricsSnapshot: overrides.metricsSnapshot || (() => ({ counters: {}, timings: {} })),
+    priceHistorySnapshot: overrides.priceHistorySnapshot || (() => ({ type: 'flights', key: 'LAX-JFK', samples: 0 }))
   };
 }
 
@@ -113,6 +114,51 @@ test('a trailing slash resolves to the same route instead of 404', async () => {
     const res = await fetch(`${base}/v1/flights/search/?from=LAX&to=JFK`);
     assert.equal(res.status, 200);
     assert.deepEqual(seen, ['flights']);
+  });
+});
+
+test('/v1/trust is public, cacheable, and lists the published commitments', async () => {
+  const cfg = { allowedOrigins: ['*'], requireApiKey: true, apiKeys: ['k'] }; // auth required for search...
+  await withServer(cfg, fakeEngine(), async (base) => {
+    const res = await fetch(`${base}/v1/trust`); // ...but the manifest needs no key
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=300');
+    const ids = body.data.commitments.map((c) => c.id);
+    assert.deepEqual(ids, ['all-in-pricing', 'no-fake-urgency', 'no-paid-ranking', 'freshness-disclosure', 'honest-failures', 'price-context']);
+    assert.ok(body.data.commitments.every((c) => c.promise && c.mechanism));
+  });
+});
+
+test('/v1/prices/history proxies the engine snapshot and surfaces its errors', async () => {
+  const seen = [];
+  const engine = fakeEngine({
+    priceHistorySnapshot: (type, query) => { seen.push([type, query.from]); return { type, key: 'LAX-JFK', samples: 2, average: 120 }; }
+  });
+  await withServer(openConfig, engine, async (base) => {
+    const res = await fetch(`${base}/v1/prices/history?type=flights&from=LAX&to=JFK`);
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(body.data.average, 120);
+    assert.deepEqual(seen[0], ['flights', 'LAX']);
+  });
+
+  const failing = fakeEngine({
+    priceHistorySnapshot: () => { const e = new Error('Invalid type. Expected one of: flights, hotels, cars'); e.statusCode = 400; throw e; }
+  });
+  await withServer(openConfig, failing, async (base) => {
+    const res = await fetch(`${base}/v1/prices/history?type=cruises`);
+    const body = await res.json();
+    assert.equal(res.status, 400);
+    assert.match(body.error.message, /Invalid type/);
+  });
+});
+
+test('unknown-route 404s advertise the trust and price-history endpoints', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const body = await (await fetch(`${base}/nope`)).json();
+    assert.ok(body.error.details.availableRoutes.includes('/v1/trust'));
+    assert.ok(body.error.details.availableRoutes.includes('/v1/prices/history'));
   });
 });
 

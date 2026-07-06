@@ -21,6 +21,24 @@ THE Travel Club is a travel aggregation engine that connects flight, hotel, car,
 
 > This engine can compare available prices from connected providers, but it should not be marketed as a guaranteed lowest-price engine until live providers, fee normalization, availability validation, and checkout/deep-link tracking are implemented.
 
+## Trust by design
+
+Competitive research across OTAs and travel clubs
+([docs/research/competitive-landscape.md](docs/research/competitive-landscape.md)) shows the same
+pattern everywhere: trusted travel brands convert normally hidden costs into explicit, published
+commitments, and the distrusted ones get caught doing the opposite (the FTC's Junk Fees Rule,
+Hopper's $35M settlement, Fareportal's fabricated scarcity counters). This engine publishes its
+commitments and enforces each one in the API contract:
+
+- **`GET /v1/trust`** returns the machine-readable manifest: all-in pricing, no fake urgency, no
+  paid ranking, freshness disclosure, honest failures, and price context — each with the mechanism
+  that enforces it.
+- **`ranking: { basis, paidPlacement: false }`** is published on every search response.
+- **Price memory**: every search records the cheapest *real* price (demo data is never recorded).
+  Once 3+ samples exist, responses carry `priceContext` — "current $289 is 12% below the 30-day
+  average" — with a ±5% band so tiny wobbles read as "near average", not hype. History is queryable
+  at `/v1/prices/history` and optionally persists to a JSONL file (`PRICE_HISTORY_FILE`).
+
 ## Lowest-price comparison
 
 For each vertical the engine fans out to every connected provider in parallel, then makes the
@@ -61,10 +79,12 @@ GET /openapi.yaml           # the live API contract (also /openapi.json, /v1/ope
 GET /health
 GET /ready
 GET /metrics
+GET /v1/trust               # public machine-readable trust commitments
 GET /v1/flights/search?from=LAX&to=JFK&date=2027-05-01
 GET /v1/flights/search?from=LAX&to=JFK&date=2027-05-01&sort=score&limit=5
 GET /v1/hotels/search?city=Las%20Vegas&cityCode=LAS&checkin=2027-05-01&checkout=2027-05-05
 GET /v1/cars/search?city=Miami&date=2027-05-01
+GET /v1/prices/history?type=flights&from=LAX&to=JFK
 GET /v1/airport/info?code=LAX
 GET /v1/flights/live?icao24=4b1814
 ```
@@ -177,6 +197,7 @@ src/
     geo.js                  # city name -> location code
     http.js
     httpClient.js           # audited outbound HTTP chokepoint
+    priceHistory.js         # price memory: recording + vs-average stats
     rateLimit.js            # per-client token buckets
 server.js
 test/                       # unit, contract (fixtures/), and router tests

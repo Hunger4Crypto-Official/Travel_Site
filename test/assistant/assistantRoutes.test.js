@@ -6,6 +6,7 @@ import { brand } from '../../src/config/brand.js';
 import { handleRequest } from '../../src/routes/router.js';
 import { AssistantService } from '../../src/assistant/assistantService.js';
 import { createAssistantService } from '../../src/assistant/index.js';
+import { KeyedRateLimiter } from '../../src/utils/rateLimit.js';
 
 const logger = { info() {}, warn() {}, error() {}, debug() {} };
 const engine = {
@@ -18,8 +19,8 @@ function fakeClient(over = {}) {
   return { enabled: true, model: 'llama3.2', generate: over.generate || (async () => '{"type":"flights","from":"lax","to":"jfk"}') };
 }
 
-async function withServer(assistantService, fn) {
-  const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, assistantService }));
+async function withServer(assistantService, fn, writeLimiter = null) {
+  const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, assistantService, writeLimiter }));
   server.listen(0); await once(server, 'listening');
   try { await fn(`http://127.0.0.1:${server.address().port}`); } finally { server.close(); await once(server, 'close'); }
 }
@@ -49,6 +50,16 @@ test('bad input is 400 and a model outage surfaces as 502', async () => {
     assert.equal(res.status, 502);
     assert.match((await res.json()).error.message, /unavailable/);
   });
+});
+
+test('assistant requests are rate-limited', async () => {
+  const writeLimiter = new KeyedRateLimiter({ capacity: 1, refillPerMinute: 1 });
+  await withServer(new AssistantService({ client: fakeClient() }), async (base) => {
+    assert.equal((await fetch(`${base}/v1/assistant`)).status, 200);
+    const second = await fetch(`${base}/v1/assistant`);
+    assert.equal(second.status, 429);
+    assert.ok(second.headers.get('retry-after'));
+  }, writeLimiter);
 });
 
 test('an internal assistant error with no status code is masked as 500', async () => {

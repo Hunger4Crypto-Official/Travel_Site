@@ -430,6 +430,19 @@ test('PWA assets are served with their content types, and 404 when absent', asyn
   });
 });
 
+test('search offers are signed with a lock when an offer secret is configured', async () => {
+  const engine = fakeEngine({ search: async () => ({ query: {}, count: 1, offers: [{ type: 'flights', id: 'off_1', price: { total: 200, currency: 'USD' } }], providers: [] }) });
+  const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config: openConfig, offerSecret: 'router-offer-secret' }));
+  server.listen(0); await once(server, 'listening');
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const body = await (await fetch(`${base}/v1/flights/search?from=LAX&to=JFK`)).json();
+    assert.ok(body.data.offers[0].lock, 'the offer carries a lock');
+    assert.equal(typeof body.data.offers[0].lock.sig, 'string');
+    assert.equal(typeof body.data.offers[0].lock.exp, 'number');
+  } finally { server.close(); await once(server, 'close'); }
+});
+
 test('the app page CSP allows the manifest and the service worker', async () => {
   await withServer(openConfig, fakeEngine(), async (base) => {
     const res = await fetch(`${base}/app`);

@@ -60,6 +60,34 @@ test('earnForBooking covers defensive fallbacks', () => {
   assert.equal(service.earnForBooking(`user:${u2.id}`, null), null);
 });
 
+test('reverseForBooking claws back the awarded points, flooring at zero', () => {
+  const { accountStore, ledger, service } = make();
+  const user = accountStore.create({ email: 'c@b.com', passwordHash: 'h' });
+  service.earnForBooking(`user:${user.id}`, { id: 'o1', price: { total: 200 } }); // +200
+  const reversed = service.reverseForBooking(`user:${user.id}`, { id: 'o1', loyaltyEarned: 200 });
+  assert.equal(reversed.balance, 0);
+  assert.equal(accountStore.get(user.id).loyaltyPoints, 0);
+  assert.ok(ledger.list(user.id).some((t) => t.type === 'reverse'));
+
+  // Floors at zero even if the balance was already spent down.
+  service.earnForBooking(`user:${user.id}`, { id: 'o2', price: { total: 50 } }); // +50
+  const floored = service.reverseForBooking(`user:${user.id}`, { id: 'o2', loyaltyEarned: 999 });
+  assert.equal(floored.balance, 0);
+
+  // A record with no loyaltyPoints field still reverses (?? 0 fallback).
+  const fresh = accountStore.create({ email: 'nf@b.com', passwordHash: 'h' });
+  delete accountStore.get(fresh.id).loyaltyPoints;
+  assert.equal(service.reverseForBooking(`user:${fresh.id}`, { id: 'o3', loyaltyEarned: 5 }).balance, 0);
+});
+
+test('reverseForBooking is a no-op for non-members, missing users, and zero earn', () => {
+  const { accountStore, service } = make();
+  const user = accountStore.create({ email: 'd@b.com', passwordHash: 'h' });
+  assert.equal(service.reverseForBooking('anonymous', { id: 'o', loyaltyEarned: 10 }), null);
+  assert.equal(service.reverseForBooking('user:ghost', { id: 'o', loyaltyEarned: 10 }), null);
+  assert.equal(service.reverseForBooking(`user:${user.id}`, { id: 'o' }), null); // no loyaltyEarned
+});
+
 test('redeem validates the amount and deducts from the balance', () => {
   const { accountStore, ledger, service } = make();
   const user = accountStore.create({ email: 'r@b.com', passwordHash: 'h' });

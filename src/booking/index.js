@@ -15,7 +15,7 @@ export function serializeBody(body) {
 // vertical. Adapters run in deterministic sandbox mode until real credentials
 // are supplied, so booking is fully exercisable end to end without live keys.
 // Returns null when booking is disabled. fetchJson is injectable for tests.
-export function createBookingService(config, { fetchJson = defaultFetchJson, loyalty = null } = {}) {
+export function createBookingService(config, { fetchJson = defaultFetchJson, loyalty = null, offerSecret = null } = {}) {
   if (!config.bookingEnabled) return null;
 
   const jsonFetch = (url, options = {}) => fetchJson(url, {
@@ -29,5 +29,5 @@ export function createBookingService(config, { fetchJson = defaultFetchJson, loy
     createDuffelAdapter({ token: config.duffelToken, env: config.duffelEnv, fetchJson: jsonFetch }),
     createBedbankAdapter({ apiKey: config.hotelbedsApiKey, secret: config.hotelbedsSecret, env: config.hotelbedsEnv, fetchJson: jsonFetch })
   ];
-  return new BookingService({ store, adapters, loyalty });
+  return new BookingService({ store, adapters, loyalty, offerSecret });
 }

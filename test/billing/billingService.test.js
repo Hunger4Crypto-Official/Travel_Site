@@ -85,28 +85,28 @@ test('status defaults optional fields for a member without a subscription', () =
   assert.equal(status.periodEnd, null);
 });
 
-test('handleWebhook verifies the signature only when a secret is configured', async () => {
-  // No secret: signature is not checked; a subscription.deleted downgrades.
+test('handleWebhook fails closed without a secret, and verifies with one', async () => {
+  // No secret configured: refuse to apply anything (503), never mutate a member.
   const noSecret = makeBilling();
   await noSecret.service.subscribe(noSecret.user, 'gold');
-  const event = JSON.stringify({ type: 'customer.subscription.deleted', data: { object: { id: 'sub_gold' } } });
-  const applied = noSecret.service.handleWebhook(event, 'sig-ignored');
-  assert.equal(applied.action, 'downgraded');
-  assert.equal(noSecret.store.get(noSecret.user.id).tier, 'free');
+  assert.throws(() => noSecret.service.handleWebhook(JSON.stringify({ type: 'customer.subscription.deleted', data: { object: { id: 'sub_gold' } } }), 'sig'), (e) => e.statusCode === 503);
+  assert.equal(noSecret.store.get(noSecret.user.id).tier, 'gold', 'the unauthenticated webhook did not downgrade');
 
-  // With a secret: an invalid signature is a 401.
-  const secured = makeBilling({ verifyWebhookSignature: () => false }, 'whsec_x');
-  assert.throws(() => secured.service.handleWebhook('{}', 'bad-sig'), (e) => e.statusCode === 401);
+  // Secret + invalid signature: 401.
+  const bad = makeBilling({ verifyWebhookSignature: () => false }, 'whsec_x');
+  assert.throws(() => bad.service.handleWebhook('{}', 'bad-sig'), (e) => e.statusCode === 401);
 
-  // With a secret and a valid signature: the event is applied.
+  // Secret + valid signature: the event is applied.
   const ok = makeBilling({ verifyWebhookSignature: () => true }, 'whsec_x');
-  const res = ok.service.handleWebhook(JSON.stringify({ type: 'nothing', data: { object: { id: 'sub_x' } } }), 'good-sig');
-  assert.equal(res.applied, false);
+  await ok.service.subscribe(ok.user, 'gold');
+  const applied = ok.service.handleWebhook(JSON.stringify({ type: 'customer.subscription.deleted', data: { object: { id: 'sub_gold' } } }), 'good-sig');
+  assert.equal(applied.action, 'downgraded');
+  assert.equal(ok.store.get(ok.user.id).tier, 'free');
 });
 
-test('handleWebhook surfaces a malformed payload as 400', () => {
-  const { service } = makeBilling();
-  assert.throws(() => service.handleWebhook('not json', null), (e) => e.statusCode === 400);
+test('handleWebhook surfaces a malformed payload as 400 (once past signature checks)', () => {
+  const { service } = makeBilling({ verifyWebhookSignature: () => true }, 'whsec_x');
+  assert.throws(() => service.handleWebhook('not json', 'sig'), (e) => e.statusCode === 400);
 });
 
 test('applyEvent covers every branch', async () => {

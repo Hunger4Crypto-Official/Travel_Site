@@ -71,7 +71,29 @@ compliance. It only proposes search fields, which pass a strict whitelist saniti
 validated by the deterministic engine. It never sets prices, ranks results, books, or produces any
 compliance or eligibility text.
 
-## 7. Honest failures
+## 7. Red-team hardening (post-audit)
+
+A multi-agent red-team pass plus live exploit drills against the running server found and closed a
+set of real issues before any keys were deployed:
+
+- **Offer integrity.** Search offers are HMAC-signed server-side (`OFFER_SIGNING_SECRET`); booking
+  refuses any offer whose price was tampered with or that was fabricated, so loyalty points and the
+  service fee cannot be forged from a client-supplied price.
+- **Fail-closed webhooks.** The billing webhook refuses to apply anything unless a webhook secret is
+  configured and the signature verifies, closing an unauthenticated tier-downgrade.
+- **Rate limiting.** Signup/login are limited per IP (brute-force / event-loop-DoS guard) and the
+  write/AI routes per principal; both return `429` with `Retry-After`.
+- **No anonymous PII sharing.** Orders (passenger names, contact) require an authenticated caller;
+  the shared `anonymous` owner can no longer read another person's booking.
+- **Loyalty clawback.** Cancelling an order reverses its awarded points, so book-then-cancel cannot
+  mint free credit.
+- **Constant-time login.** Login runs the password hash even for unknown emails (decoy hash), so an
+  attacker cannot enumerate accounts by timing.
+- One reported finding (obfuscated-IP SSRF bypass) was **verified as already mitigated**: the URL
+  parser canonicalizes numeric host encodings before the guard inspects them, so `isBlockedIpv4`
+  already catches them. A regression test locks this in.
+
+## 8. Honest failures
 
 When a data source fails we say so (`providers[].status` with a coarse error category and an
 explicit message) instead of pretending there were no results. The published, machine-readable

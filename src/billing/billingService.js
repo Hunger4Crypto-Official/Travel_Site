@@ -62,12 +62,17 @@ export class BillingService {
     };
   }
 
-  // Verify (when a secret is configured), parse, and apply a gateway webhook.
+  // Verify, parse, and apply a gateway webhook. Fails CLOSED: with no configured
+  // secret we cannot authenticate the sender, so we refuse to apply anything
+  // rather than let an unauthenticated caller mutate a member's tier.
   handleWebhook(rawBody, signatureHeader) {
-    if (this.webhookSecret) {
-      const valid = this.gateway.verifyWebhookSignature({ payload: rawBody, signature: signatureHeader, secret: this.webhookSecret });
-      if (!valid) throw unauthorized('Invalid webhook signature');
+    if (!this.webhookSecret) {
+      const err = new Error('Webhook signature verification is not configured');
+      err.statusCode = 503;
+      throw err;
     }
+    const valid = this.gateway.verifyWebhookSignature({ payload: rawBody, signature: signatureHeader, secret: this.webhookSecret });
+    if (!valid) throw unauthorized('Invalid webhook signature');
     return this.applyEvent(this.gateway.parseWebhookEvent(rawBody));
   }
 

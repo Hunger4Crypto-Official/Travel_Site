@@ -30,6 +30,21 @@ export class LoyaltyService {
     return { points, balance: balanceAfter, transaction };
   }
 
+  // Claw back points awarded for an order that is being cancelled, so a
+  // book-then-cancel loop cannot mint free credit. Floors the balance at zero.
+  reverseForBooking(owner, order) {
+    const userId = userIdOf(owner);
+    if (!userId) return null;
+    const user = this.accountStore.get(userId);
+    if (!user) return null;
+    const points = order?.loyaltyEarned || 0;
+    if (points <= 0) return null;
+    const balanceAfter = Math.max(0, (user.loyaltyPoints ?? 0) - points);
+    this.accountStore.update(userId, { loyaltyPoints: balanceAfter });
+    const transaction = this.ledger.record({ owner: userId, type: 'reverse', points, reason: `Cancelled ${order.id}`, orderId: order.id, balanceAfter });
+    return { points, balance: balanceAfter, transaction };
+  }
+
   redeem(user, points) {
     if (!Number.isInteger(points) || points <= 0) {
       throw badRequest('Redeem a positive whole number of points');

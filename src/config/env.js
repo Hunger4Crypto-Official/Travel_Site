@@ -15,7 +15,9 @@ const integerSettings = [
   ['ACCOUNTS_MAX_ENTRIES', 100000],
   ['SESSION_TTL_MS', 604800000],
   ['ORDERS_MAX_ENTRIES', 50000],
-  ['LOYALTY_MAX_ENTRIES', 100000]
+  ['LOYALTY_MAX_ENTRIES', 100000],
+  ['AUTH_RATE_LIMIT_CAPACITY', 10],
+  ['WRITE_RATE_LIMIT_CAPACITY', 60]
 ];
 
 export function loadConfig(env = process.env) {
@@ -109,7 +111,13 @@ export function loadConfig(env = process.env) {
     // Assistive only: never wired to pricing, booking, money, or compliance.
     assistantEnabled: env.ASSISTANT_ENABLED === 'true',
     ollamaUrl: env.OLLAMA_URL || 'http://localhost:11434',
-    ollamaModel: env.OLLAMA_MODEL || 'llama3.2'
+    ollamaModel: env.OLLAMA_MODEL || 'llama3.2',
+
+    // Security hardening: signs bookable offers, and per-client limits for the
+    // sensitive routes the engine limiter does not cover.
+    offerSigningSecret: env.OFFER_SIGNING_SECRET || null,
+    authRateLimitCapacity: values.AUTH_RATE_LIMIT_CAPACITY,
+    writeRateLimitCapacity: values.WRITE_RATE_LIMIT_CAPACITY
   };
 }
 

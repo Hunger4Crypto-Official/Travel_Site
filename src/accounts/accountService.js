@@ -5,6 +5,10 @@ import { getTier, hasMemberRates, benefitsFor, defaultTierId } from './membershi
 // the real validator once email verification lands in a later phase.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// A fixed decoy hash so login runs the same scrypt work whether or not the
+// email exists, closing the timing oracle that would otherwise enumerate accounts.
+const DECOY_HASH = hashPassword('decoy-account-benchmark-value');
+
 // Orchestrates the account lifecycle over an AccountStore and a session manager.
 // Public results never carry the password hash: publicUser() is the only shape
 // that leaves this service toward a response.
@@ -24,7 +28,10 @@ export class AccountService {
   login(input = {}) {
     const email = normalizeEmail(input.email);
     const user = this.store.findByEmail(email);
-    if (!user || !verifyPassword(input.password ?? '', user.passwordHash)) {
+    // Always verify against a real hash (the decoy when the user is absent) so
+    // both branches do equal scrypt work and cannot be timed apart.
+    const passwordOk = verifyPassword(input.password ?? '', user ? user.passwordHash : DECOY_HASH);
+    if (!user || !passwordOk) {
       throw unauthorized('Invalid email or password');
     }
     return { user: publicUser(user), token: this.sessions.issue(user.id) };

@@ -54,6 +54,18 @@ test('isAllowedWebhookUrl allows public http/https URLs', () => {
   assert.equal(isAllowedWebhookUrl('http://[2001:4860:4860::8888]/x'), true); // public IPv6
 });
 
+test('isAllowedWebhookUrl blocks obfuscated numeric IP encodings (URL parser canonicalizes them)', () => {
+  // The WHATWG URL parser normalizes these to a dotted quad, which isBlockedIpv4
+  // then catches. Out-of-range integers make new URL() throw and are rejected.
+  assert.equal(isAllowedWebhookUrl('http://2130706433/hook'), false); // -> 127.0.0.1
+  assert.equal(isAllowedWebhookUrl('http://2852039166/hook'), false); // -> 169.254.169.254 (metadata)
+  assert.equal(isAllowedWebhookUrl('http://0177.0.0.1/hook'), false); // octal -> 127.0.0.1
+  assert.equal(isAllowedWebhookUrl('http://127.1/hook'), false); // short form -> 127.0.0.1
+  assert.equal(isAllowedWebhookUrl('http://0x7f000001/hook'), false); // hex -> 127.0.0.1
+  assert.equal(isAllowedWebhookUrl('http://999999999999/hook'), false); // out of range -> throws
+  assert.equal(isAllowedWebhookUrl('http://203.0.113.5/hook'), true); // canonical public
+});
+
 test('isAllowedWebhookUrl blocks non-http(s) protocols', () => {
   assert.equal(isAllowedWebhookUrl('ftp://example.com/x'), false);
   assert.equal(isAllowedWebhookUrl('file:///etc/passwd'), false);

@@ -60,6 +60,27 @@ test('a wired loyalty service earns points for members and is skipped for non-me
   assert.deepEqual(seen, ['user:1', 'anonymous']);
 });
 
+test('cancelling claws back earned loyalty, and skips it when nothing was earned', async () => {
+  const reversed = [];
+  const loyalty = {
+    earnForBooking: (owner) => (owner === 'user:1' ? { points: 42 } : null),
+    reverseForBooking: (owner, order) => { reversed.push(order.id); return { points: order.loyaltyEarned }; }
+  };
+  const { service } = makeService([fakeAdapter()]);
+  service.loyalty = loyalty;
+
+  const earned = await service.createOrder({ type: 'flights', offer: offer(), passengers: goodPax, contact: goodContact }, { principal: 'user:1', tier: 'free' });
+  assert.equal(earned.loyaltyEarned, 42);
+  await service.cancelOrder(earned.id, { principal: 'user:1' });
+  assert.deepEqual(reversed, [earned.id], 'points are clawed back on cancel');
+
+  // An order that earned nothing does not trigger a reversal.
+  const none = await service.createOrder({ type: 'flights', offer: offer(), passengers: goodPax, contact: goodContact }, { principal: 'user:2', tier: 'free' });
+  assert.equal(none.loyaltyEarned, 0);
+  await service.cancelOrder(none.id, { principal: 'user:2' });
+  assert.deepEqual(reversed, [earned.id], 'no reversal for a zero-point order');
+});
+
 test('the gold tier has its booking service fee waived', async () => {
   const { service } = makeService([fakeAdapter()]);
   const order = await service.createOrder(

@@ -1,8 +1,10 @@
 import { getTier } from '../accounts/membership.js';
+import { verifyOfferLock } from './offerLock.js';
 
 const SUPPORTED = new Set(['flights', 'hotels', 'cars']);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_FEE_RATE = 0.02; // 2% booking service fee, waived for the top tier.
+const MAX_PASSENGERS = 9;
 // Cancellation is as easy as booking (FTC click-to-cancel expectation), stated
 // upfront on every order.
 const CANCELLATION_POLICY = 'Cancel anytime from your trips. Any refund follows the provider policy and is shown when you cancel.';
@@ -12,9 +14,12 @@ const CANCELLATION_POLICY = 'Cancel anytime from your trips. Any refund follows 
 // record; this service owns validation, the tier-aware service fee, owner
 // scoping, and the order lifecycle (pending -> confirmed/failed -> cancelled).
 export class BookingService {
-  constructor({ store, adapters = [], loyalty = null, now = () => Date.now(), feeRate = DEFAULT_FEE_RATE } = {}) {
+  constructor({ store, adapters = [], loyalty = null, offerSecret = null, now = () => Date.now(), feeRate = DEFAULT_FEE_RATE } = {}) {
     this.store = store;
     this.loyalty = loyalty;
+    // When set, every booked offer must carry a valid server-issued lock, so a
+    // client cannot fabricate an offer or tamper with its price.
+    this.offerSecret = offerSecret;
     this.now = now;
     this.feeRate = feeRate;
     this.adapters = new Map();
@@ -36,6 +41,11 @@ export class BookingService {
     const offer = input.offer;
     if (!offer || typeof offer !== 'object' || typeof offer.id !== 'string' || !offer.price || typeof offer.price !== 'object') {
       throw badRequest('A valid offer is required to book');
+    }
+    // The offer must be one we issued and priced, unchanged. This blocks
+    // fabricated offers and price tampering (loyalty/fee forgery).
+    if (this.offerSecret && !verifyOfferLock(this.offerSecret, offer, { now: this.now })) {
+      throw badRequest('This offer could not be verified. Please search again and book from the results.');
     }
     const passengers = normalizePassengers(input.passengers);
     const contact = normalizeContact(input.contact);
@@ -99,6 +109,9 @@ export class BookingService {
     const adapter = this.adapterFor(order.type);
     if (!adapter) throw badRequest(`Cancellation is not available for ${order.type}`);
     const result = await adapter.cancel({ providerRef: order.providerRef });
+    // Claw back any loyalty points awarded for this order so a book-then-cancel
+    // loop cannot mint free credit.
+    if (this.loyalty && order.loyaltyEarned) this.loyalty.reverseForBooking(order.owner, order);
     const updated = this.store.update(id, {
       status: 'cancelled', cancelledAt: this.now(), refund: result.refund || null,
       history: [...(order.history || []), { at: this.now(), status: 'cancelled', note: 'Cancelled' }]
@@ -118,6 +131,9 @@ export class BookingService {
 function normalizePassengers(list) {
   if (!Array.isArray(list) || list.length === 0) {
     throw badRequest('At least one passenger is required to book');
+  }
+  if (list.length > MAX_PASSENGERS) {
+    throw badRequest(`At most ${MAX_PASSENGERS} passengers per booking`);
   }
   return list.map((passenger) => {
     const givenName = typeof passenger?.givenName === 'string' ? passenger.givenName.trim() : '';

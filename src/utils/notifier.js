@@ -64,6 +64,12 @@ export function isBlockedIpv6(host) {
 
 // --- SSRF guard -------------------------------------------------------------
 
+// Note on obfuscated IP encodings (decimal 2130706433, hex 0x7f000001, octal
+// 0177.0.0.1, short form 127.1): the WHATWG URL parser canonicalizes all of
+// these to a dotted quad in parsed.hostname (e.g. 127.0.0.1, 169.254.169.254)
+// before we inspect the host, so isBlockedIpv4 already catches them; an
+// out-of-range integer makes new URL() throw, which is rejected below. Verified
+// by test.
 export function isAllowedWebhookUrl(url) {
   let parsed;
   try {

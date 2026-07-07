@@ -84,9 +84,18 @@ const assets = {
   '/icon.svg': loadPage('./public/icon.svg', logger)
 };
 
-const bookingService = createBookingService(config, { loyalty: loyaltyService });
+// Secret that signs search offers so a client cannot tamper with a price or
+// fabricate an offer at booking time. A stable value across restarts keeps
+// in-flight offers bookable; falls back to an ephemeral secret in dev.
+const offerSecret = config.offerSigningSecret || randomBytes(32).toString('hex');
+const bookingService = createBookingService(config, { loyalty: loyaltyService, offerSecret });
 
-const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, assets, accountService, bookingService, billingService, loyaltyService, assistantService }));
+// Per-client rate limiting for the sensitive routes the engine limiter does not
+// cover: auth (per IP, strict) and the write/AI routes (per principal or IP).
+const authLimiter = new KeyedRateLimiter({ capacity: config.authRateLimitCapacity, refillPerMinute: config.authRateLimitCapacity });
+const writeLimiter = new KeyedRateLimiter({ capacity: config.writeRateLimitCapacity, refillPerMinute: config.writeRateLimitCapacity });
+
+const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, assets, accountService, bookingService, billingService, loyaltyService, assistantService, authLimiter, writeLimiter, offerSecret }));
 
 server.listen(config.port, () => {
   logger.info('Server started', { service: brand.name, acronym: brand.acronym, port: config.port, nodeEnv: config.nodeEnv });

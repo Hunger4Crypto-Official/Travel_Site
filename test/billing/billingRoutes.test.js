@@ -8,6 +8,8 @@ import { AccountStore } from '../../src/accounts/accountStore.js';
 import { AccountService } from '../../src/accounts/accountService.js';
 import { createSessionManager } from '../../src/accounts/sessions.js';
 import { createBillingService } from '../../src/billing/index.js';
+import { createHmac } from 'node:crypto';
+import { KeyedRateLimiter } from '../../src/utils/rateLimit.js';
 
 const logger = { info() {}, warn() {}, error() {}, debug() {} };
 const engine = {
@@ -16,16 +18,23 @@ const engine = {
 };
 const billingConfig = { billingEnabled: true, stripeSecretKey: null, stripeWebhookSecret: null, stripePriceSilver: null, stripePriceGold: null, providerTimeoutMs: 8000 };
 
-function makeStack({ billingEnabled = true } = {}) {
+function makeStack({ billingEnabled = true, webhookSecret = null, writeLimiter = null } = {}) {
   const store = new AccountStore({});
   const accountService = new AccountService({ store, sessions: createSessionManager({ secret: 'billing-test-secret' }) });
-  const billingService = createBillingService({ ...billingConfig, billingEnabled }, billingEnabled ? store : null);
-  return { store, accountService, billingService };
+  const billingService = createBillingService({ ...billingConfig, billingEnabled, stripeWebhookSecret: webhookSecret }, billingEnabled ? store : null);
+  return { store, accountService, billingService, writeLimiter };
+}
+
+// Build a Stripe-style signature header for a raw payload.
+function stripeSig(secret, payload) {
+  const t = Math.floor(Date.now() / 1000);
+  const v1 = createHmac('sha256', secret).update(`${t}.${payload}`).digest('hex');
+  return `t=${t},v1=${v1}`;
 }
 
 async function withServer(stack, fn) {
   const config = { allowedOrigins: ['*'], requireApiKey: false, apiKeys: [], sessionTtlMs: 604800000, cookieSecure: false };
-  const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, accountService: stack.accountService, billingService: stack.billingService }));
+  const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, accountService: stack.accountService, billingService: stack.billingService, writeLimiter: stack.writeLimiter }));
   server.listen(0);
   await once(server, 'listening');
   const { port } = server.address();
@@ -82,11 +91,25 @@ test('subscribing to the free tier is a 400', async () => {
   });
 });
 
-test('the webhook is public and applies events (no secret configured -> accepted)', async () => {
+test('the webhook fails closed when no secret is configured (503, no mutation)', async () => {
   await withServer(makeStack(), async (base) => {
     const res = await fetch(`${base}/v1/billing/webhook`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'customer.subscription.deleted', data: { object: { id: 'sub_unknown' } } }) });
-    assert.equal(res.status, 200);
-    assert.equal((await res.json()).data.applied, false); // no matching member
+    assert.equal(res.status, 503);
+  });
+});
+
+test('a correctly signed webhook is accepted and applied', async () => {
+  const secret = 'whsec_test_secret';
+  await withServer(makeStack({ webhookSecret: secret }), async (base) => {
+    // An unsigned webhook is rejected...
+    const bad = await fetch(`${base}/v1/billing/webhook`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(bad.status, 401);
+
+    // ...a correctly signed one is processed (unknown subscription -> applied:false).
+    const payload = JSON.stringify({ type: 'customer.subscription.deleted', data: { object: { id: 'sub_none' } } });
+    const good = await fetch(`${base}/v1/billing/webhook`, { method: 'POST', headers: { 'content-type': 'application/json', 'stripe-signature': stripeSig(secret, payload) }, body: payload });
+    assert.equal(good.status, 200);
+    assert.equal((await good.json()).data.applied, false);
   });
 });
 
@@ -99,6 +122,17 @@ test('a billing failure with no status code is masked as a 500', async () => {
     const res = await fetch(`${base}/v1/billing/subscribe`, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: '{"tier":"gold"}' });
     assert.equal(res.status, 500);
     assert.equal((await res.json()).error.message, 'Unexpected error');
+  });
+});
+
+test('billing requests are rate-limited', async () => {
+  const writeLimiter = new KeyedRateLimiter({ capacity: 1, refillPerMinute: 1 });
+  await withServer(makeStack({ writeLimiter }), async (base) => {
+    const cookie = `tc_session=${await signIn(base)}`;
+    assert.equal((await fetch(`${base}/v1/billing`, { headers: { cookie } })).status, 200);
+    const second = await fetch(`${base}/v1/billing`, { headers: { cookie } });
+    assert.equal(second.status, 429);
+    assert.ok(second.headers.get('retry-after'));
   });
 });
 

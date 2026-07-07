@@ -1,6 +1,7 @@
 import { success, error } from '../utils/formatter.js';
 import { authenticate, createRequestContext, responseHeaders } from '../utils/http.js';
 import { readJsonBody, readRawBody } from '../utils/requestBody.js';
+import { lockOffer } from '../booking/offerLock.js';
 
 const SOURCE = 'the-travel-club';
 const SESSION_COOKIE = 'tc_session';
@@ -65,7 +66,7 @@ const staticAssets = new Map([
   ['/icon.svg', 'image/svg+xml']
 ]);
 
-export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, assets = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null, assistantService = null }) {
+export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, assets = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null, assistantService = null, authLimiter = null, writeLimiter = null, offerSecret = null }) {
   const context = createRequestContext(req);
   setHeaders(res, responseHeaders({ requestId: context.requestId, origin: req.headers.origin, allowedOrigins: config.allowedOrigins }));
 
@@ -80,6 +81,15 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     error(message, statusCode, details, { requestId: context.requestId, version: brand.apiVersion }),
     context, logger
   );
+  // Sends a 429 and returns true when the keyed limiter is exhausted, else
+  // false. Callers do `if (throttled(...)) return;` since the response is sent.
+  const throttled = (limiter, key) => {
+    if (!limiter || limiter.consume(key)) return false;
+    const retryAfter = limiter.retryAfterSeconds();
+    res.setHeader('Retry-After', String(retryAfter));
+    fail(429, 'Too many requests. Please slow down.', { retryAfter });
+    return true;
+  };
 
   if (req.method === 'OPTIONS') return sendJson(res, 204, null, context, logger);
 
@@ -103,6 +113,8 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   // Identity from the session cookie (consumer web app). Independent of the
   // API-key auth used by programmatic clients; either can satisfy access.
   const identity = accountService ? accountService.identify(readCookie(req, SESSION_COOKIE)) : null;
+  // Rate-limit key: the signed-in user when present, else the client IP.
+  const rlKey = identity ? `user:${identity.user.id}` : clientIp(req);
 
   logger?.info('Request started', { requestId: context.requestId, method: req.method, path: pathname });
 
@@ -155,6 +167,10 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   // in to the web app, and login must work before any credential exists.
   if (authPaths.has(pathname)) {
     if (!accountService) return fail(404, 'Accounts are not enabled on this deployment', { path: pathname });
+    // Throttle signup/login per client IP to blunt brute force and spam.
+    if ((pathname === '/v1/auth/signup' || pathname === '/v1/auth/login') && throttled(authLimiter, clientIp(req))) {
+      return;
+    }
     try {
       if (pathname === '/v1/me') {
         if (!identity) return fail(401, 'Not signed in');
@@ -180,6 +196,7 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   // subscription requires a signed-in member.
   if (billingPaths.has(pathname)) {
     if (!billingService) return fail(404, 'Billing is not enabled on this deployment', { path: pathname });
+    if (throttled(writeLimiter, rlKey)) return;
     try {
       if (pathname === '/v1/billing/webhook') {
         const raw = await readRawBody(req);
@@ -206,6 +223,7 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   // Loyalty program. Both routes require a signed-in member.
   if (loyaltyPaths.has(pathname)) {
     if (!loyaltyService) return fail(404, 'Loyalty is not enabled on this deployment', { path: pathname });
+    if (throttled(writeLimiter, rlKey)) return;
     if (!identity) return fail(401, 'Sign in to view your loyalty balance');
     const userPrincipal = `user:${identity.user.id}`;
     try {
@@ -226,6 +244,7 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   // a suggested structured query the caller reviews. Public; never touches money.
   if (assistantPaths.has(pathname)) {
     if (!assistantService) return fail(404, 'The assistant is not enabled on this deployment', { path: pathname });
+    if (throttled(writeLimiter, rlKey)) return;
     try {
       if (pathname === '/v1/assistant') return ok(200, assistantService.status());
       const body = await readJsonBody(req);
@@ -290,6 +309,10 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     // record. /v1/orders is the collection, /v1/orders/<id> a single order.
     if (pathname === '/v1/orders' || pathname.startsWith('/v1/orders/')) {
       if (!bookingService) return fail(404, 'Booking is not enabled on this deployment', { path: pathname });
+      // Orders carry PII (passenger names, contact) and must never be shared by
+      // the single 'anonymous' owner. Require an authenticated caller.
+      if (principal === 'anonymous') return fail(401, 'Sign in to view or manage your bookings');
+      if (throttled(writeLimiter, principal)) return;
       if (pathname === '/v1/orders') {
         if (req.method === 'POST') {
           const body = await readJsonBody(req);
@@ -297,7 +320,12 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
         }
         return ok(200, bookingService.listOrders({ principal }), { principal });
       }
-      const orderId = decodeURIComponent(pathname.slice('/v1/orders/'.length));
+      let orderId;
+      try {
+        orderId = decodeURIComponent(pathname.slice('/v1/orders/'.length));
+      } catch {
+        return fail(400, 'Invalid order id', { path: pathname });
+      }
       if (req.method === 'DELETE') {
         return ok(200, await bookingService.cancelOrder(orderId, { principal }), { principal });
       }
@@ -318,6 +346,11 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     }
 
     const data = await engine.search(type, query, { clientKey });
+    // Sign each offer so it can be booked without the client tampering with its
+    // price or fabricating an offer (verified in bookingService.createOrder).
+    if (offerSecret && Array.isArray(data.offers)) {
+      for (const offer of data.offers) offer.lock = lockOffer(offerSecret, offer);
+    }
     return ok(200, data, { principal });
   } catch (err) {
     const statusCode = err.statusCode || 500;

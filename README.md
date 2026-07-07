@@ -159,13 +159,15 @@ Because provider responses are only as trustworthy as the mapping, every mapper 
 
 The engine ships its own zero-dependency UI, served straight from `public/` with no build step:
 
-- **`/app`** (also what browsers get at `/` via content negotiation): a cinematic search
-  experience for flights, hotels, cars, airport info, and live tracking. It renders the trust
-  machinery visibly: all-in totals, estimate warnings, freshness chips (live/cached/demo), the
-  honest no-results and demo-data banners, "no paid placement", price-vs-average context, the
-  cheapest-offer highlight with every alternative seller listed, and a 30-day price-history
-  sparkline with a table view. Searches are shareable deep links
-  (`/app?tab=flights&from=LAX&to=JFK&date=...&auto=1`).
+- **`/app`** (also what browsers get at `/` via content negotiation): a mobile-first, cinematic
+  progressive web app (installable, offline shell via a service worker, safe-area aware, bottom tab
+  bar). It carries the full member journey: search flights/hotels/cars with all-in prices, a
+  touch-first booking sheet that shows the trip total and the tier-aware service fee before you
+  confirm, a booking confirmation with points earned, a Trips tab (view and cancel orders), and an
+  Account tab (membership tier and upgrade/cancel, loyalty balance and redemption, price watches).
+  It renders the trust machinery visibly: all-in totals, estimate warnings, freshness chips
+  (live/cached/demo), "no paid placement", and a link to the trust manifest. Served with the app
+  manifest, service worker, and icon at `/manifest.webmanifest`, `/sw.js`, and `/icon.svg`.
 - **`/admin`**: a live operations console polling `/ready` and `/metrics`: provider readiness and
   circuit state, latency bars, cache hit rate, rate-limit counters, the published trust manifest,
   and a price-history explorer. Paste an API key in the header when diagnostics are protected.

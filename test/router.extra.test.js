@@ -396,6 +396,49 @@ test('client errors surface their message, but 5xx are masked', async () => {
   });
 });
 
+test('PWA assets are served with their content types, and 404 when absent', async () => {
+  const assets = {
+    '/manifest.webmanifest': '{"name":"THE Travel Club"}',
+    '/sw.js': 'self.addEventListener("install", () => {});',
+    '/icon.svg': '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+  };
+  const withAssets = async (a, fn) => {
+    const server = createServer((req, res) => handleRequest(req, res, { engine: fakeEngine(), brand, logger, config: openConfig, assets: a }));
+    server.listen(0); await once(server, 'listening');
+    try { await fn(`http://127.0.0.1:${server.address().port}`); } finally { server.close(); await once(server, 'close'); }
+  };
+
+  await withAssets(assets, async (base) => {
+    const man = await fetch(`${base}/manifest.webmanifest`);
+    assert.equal(man.status, 200);
+    assert.match(man.headers.get('content-type'), /application\/manifest\+json/);
+    assert.equal(man.headers.get('cache-control'), 'public, max-age=3600');
+    assert.match((await man.json()).name, /Travel Club/);
+
+    const sw = await fetch(`${base}/sw.js`);
+    assert.equal(sw.status, 200);
+    assert.match(sw.headers.get('content-type'), /javascript/);
+
+    const icon = await fetch(`${base}/icon.svg`);
+    assert.equal(icon.status, 200);
+    assert.match(icon.headers.get('content-type'), /image\/svg/);
+  });
+
+  // Not deployed on this instance.
+  await withAssets({}, async (base) => {
+    assert.equal((await fetch(`${base}/sw.js`)).status, 404);
+  });
+});
+
+test('the app page CSP allows the manifest and the service worker', async () => {
+  await withServer(openConfig, fakeEngine(), async (base) => {
+    const res = await fetch(`${base}/app`);
+    const csp = res.headers.get('content-security-policy');
+    assert.match(csp, /manifest-src 'self'/);
+    assert.match(csp, /worker-src 'self'/);
+  }, null, samplePages);
+});
+
 test('health is public and includes a request id from the client when provided', async () => {
   await withServer(openConfig, fakeEngine(), async (base) => {
     const res = await fetch(`${base}/health`, { headers: { 'x-request-id': 'req-123' } });

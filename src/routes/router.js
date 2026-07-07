@@ -53,9 +53,17 @@ const protectedPaths = new Set(['/ready', '/metrics']);
 // The API default CSP is default-src 'none' (right for JSON). The web pages are
 // self-contained single files, so they need inline style/script and same-origin
 // fetch, while still forbidding framing, external sources, and form exfiltration.
-const PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+const PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
-export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null }) {
+// Public static assets that make the web app installable (PWA). Served with a
+// long cache and their correct content types.
+const staticAssets = new Map([
+  ['/manifest.webmanifest', 'application/manifest+json'],
+  ['/sw.js', 'application/javascript; charset=utf-8'],
+  ['/icon.svg', 'image/svg+xml']
+]);
+
+export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, assets = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null }) {
   const context = createRequestContext(req);
   setHeaders(res, responseHeaders({ requestId: context.requestId, origin: req.headers.origin, allowedOrigins: config.allowedOrigins }));
 
@@ -131,6 +139,14 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     if (!openapiSpec) return fail(404, 'OpenAPI specification is not available', { path: pathname });
     res.setHeader('cache-control', 'public, max-age=300');
     return sendText(res, 200, openapiSpec, 'application/yaml', context, logger);
+  }
+
+  // PWA assets (manifest, service worker, icon). Public and cacheable.
+  if (staticAssets.has(pathname)) {
+    const body = assets[pathname];
+    if (!body) return fail(404, 'This asset is not available on this deployment', { path: pathname });
+    res.setHeader('cache-control', 'public, max-age=3600');
+    return sendText(res, 200, body, staticAssets.get(pathname), context, logger);
   }
 
   // Accounts and sessions. Public (no API key): these are how a consumer signs

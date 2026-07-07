@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="THE Travel Club">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3987e5"/>
+      <stop offset="1" stop-color="#199e70"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0b1020"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="url(#g)" stroke-width="18" opacity="0.55"/>
+  <path d="M120 300 L392 208 L360 268 L250 300 L300 360 L268 372 L200 320 L150 336 Z" fill="url(#g)"/>
+</svg>

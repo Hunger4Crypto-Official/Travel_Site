@@ -75,10 +75,15 @@ const pages = {
   app: loadPage('./public/app.html', logger),
   admin: loadPage('./public/admin.html', logger)
 };
+const assets = {
+  '/manifest.webmanifest': loadPage('./public/manifest.webmanifest', logger),
+  '/sw.js': loadPage('./public/sw.js', logger),
+  '/icon.svg': loadPage('./public/icon.svg', logger)
+};
 
 const bookingService = createBookingService(config, { loyalty: loyaltyService });
 
-const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, accountService, bookingService, billingService, loyaltyService }));
+const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, assets, accountService, bookingService, billingService, loyaltyService }));
 
 server.listen(config.port, () => {
   logger.info('Server started', { service: brand.name, acronym: brand.acronym, port: config.port, nodeEnv: config.nodeEnv });

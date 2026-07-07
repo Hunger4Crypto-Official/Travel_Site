@@ -85,7 +85,13 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
     ORDERS_FILE: '/tmp/orders.jsonl',
     ORDERS_MAX_ENTRIES: '7',
     DUFFEL_TOKEN: 'duf',
-    DUFFEL_ENV: 'production'
+    DUFFEL_ENV: 'production',
+    LOYALTY_ENABLED: 'false',
+    LOYALTY_FILE: '/tmp/loyalty.jsonl',
+    LOYALTY_MAX_ENTRIES: '3',
+    ASSISTANT_ENABLED: 'true',
+    OLLAMA_URL: 'http://ollama:11434',
+    OLLAMA_MODEL: 'mistral'
   });
 
   assert.equal(config.nodeEnv, 'production');
@@ -134,6 +140,12 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
   assert.equal(config.ordersMaxEntries, 7);
   assert.equal(config.duffelToken, 'duf');
   assert.equal(config.duffelEnv, 'production');
+  assert.equal(config.loyaltyEnabled, false);
+  assert.equal(config.loyaltyFile, '/tmp/loyalty.jsonl');
+  assert.equal(config.loyaltyMaxEntries, 3);
+  assert.equal(config.assistantEnabled, true);
+  assert.equal(config.ollamaUrl, 'http://ollama:11434');
+  assert.equal(config.ollamaModel, 'mistral');
 });
 
 test('loadConfig auth flag: explicit REQUIRE_API_KEY and production-without-keys', () => {

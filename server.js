@@ -22,6 +22,7 @@ import { createSessionManager } from './src/accounts/sessions.js';
 import { createBookingService } from './src/booking/index.js';
 import { createBillingService } from './src/billing/index.js';
 import { createLoyaltyService } from './src/loyalty/index.js';
+import { createAssistantService } from './src/assistant/index.js';
 
 loadDotEnv({ path: new URL('./.env', import.meta.url).pathname });
 const config = loadConfig();
@@ -54,6 +55,8 @@ if (config.accountsEnabled) {
 const billingService = createBillingService(config, accountStore);
 // Loyalty shares the account store for member balances; booking awards points.
 const loyaltyService = createLoyaltyService(config, accountStore);
+// Natural-language search assistant (local Ollama). Opt-in, off by default.
+const assistantService = createAssistantService(config);
 
 const engine = new TravelEngine({
   providers: createProviders(config),
@@ -83,7 +86,7 @@ const assets = {
 
 const bookingService = createBookingService(config, { loyalty: loyaltyService });
 
-const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, assets, accountService, bookingService, billingService, loyaltyService }));
+const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, assets, accountService, bookingService, billingService, loyaltyService, assistantService }));
 
 server.listen(config.port, () => {
   logger.info('Server started', { service: brand.name, acronym: brand.acronym, port: config.port, nodeEnv: config.nodeEnv });

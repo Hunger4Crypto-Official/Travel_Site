@@ -103,7 +103,13 @@ export function loadConfig(env = process.env) {
     // Loyalty program (/v1/loyalty): points earned on bookings, redeemed for credit.
     loyaltyEnabled: env.LOYALTY_ENABLED !== 'false',
     loyaltyFile: env.LOYALTY_FILE || null,
-    loyaltyMaxEntries: values.LOYALTY_MAX_ENTRIES
+    loyaltyMaxEntries: values.LOYALTY_MAX_ENTRIES,
+
+    // Natural-language search assistant (local Ollama). Opt-in, OFF by default.
+    // Assistive only: never wired to pricing, booking, money, or compliance.
+    assistantEnabled: env.ASSISTANT_ENABLED === 'true',
+    ollamaUrl: env.OLLAMA_URL || 'http://localhost:11434',
+    ollamaModel: env.OLLAMA_MODEL || 'llama3.2'
   };
 }
 

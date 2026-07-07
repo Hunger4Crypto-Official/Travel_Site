@@ -124,7 +124,7 @@
 
 <script>
 "use strict";
-const state = { view:'search', me:null, type:'flights', offers:[], lastQuery:null };
+const state = { view:'search', me:null, type:'flights', offers:[], lastQuery:null, assistant:{enabled:false} };
 
 function el(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstChild; }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -143,6 +143,7 @@ async function api(path, opts){
 
 async function boot(){
   try{ state.me=await api('/v1/me'); }catch(e){ state.me=null; }
+  try{ state.assistant=await api('/v1/assistant'); }catch(e){ state.assistant={enabled:false}; }
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
   go(state.view);
 }
@@ -166,6 +167,14 @@ function renderSearch(v){
   });
   v.appendChild(el('<h2 class="view-title">Find the honest lowest price</h2>'));
   v.appendChild(el('<div class="sub">Every price is an all-in total. No fake urgency, no paid ranking.</div>'));
+  if(state.assistant && state.assistant.enabled){
+    const nl=el('<div class="card" style="margin-bottom:14px;background:linear-gradient(180deg,rgba(57,135,229,0.10),rgba(25,158,112,0.06))"></div>');
+    nl.appendChild(el('<label style="margin-bottom:8px">&#10024; Describe your trip</label>'));
+    nl.appendChild(el('<input id="nl_text" placeholder="cheap flight from LA to New York in May">'));
+    const go2=el('<button id="nl_go" class="btn ghost" style="margin-top:10px">Fill from description</button>'); go2.onclick=parseAssistant; nl.appendChild(go2);
+    nl.appendChild(el('<div class="sub" style="margin:10px 2px 0;font-size:11px">A local AI suggests the fields. You review them; prices always come from the live engine.</div>'));
+    v.appendChild(nl);
+  }
   v.appendChild(seg);
   const form=el('<div class="card"></div>');
   if(state.type==='flights'){
@@ -184,6 +193,21 @@ function renderSearch(v){
   if(state.offers.length) renderOffers(results);
 }
 function q(id){ const e=document.getElementById(id); return e?e.value.trim():''; }
+async function parseAssistant(){
+  const text=q('nl_text'); if(!text){ toast('Describe your trip first'); return; }
+  const btn=document.getElementById('nl_go'); btn.disabled=true; btn.textContent='Thinking...';
+  try{
+    const d=await api('/v1/assistant/parse',{method:'POST',body:{text:text}});
+    const s=d.suggestion||{};
+    if(s.type){ state.type=s.type; }
+    render();
+    const set=(id,val)=>{ const e=document.getElementById(id); if(e&&val) e.value=val; };
+    if(state.type==='flights'){ set('q_from',s.from); set('q_to',s.to); set('q_date',s.date); }
+    else if(state.type==='hotels'){ set('q_city',s.city); set('q_checkin',s.checkin); set('q_checkout',s.checkout); }
+    else { set('q_city',s.city); set('q_date',s.date); }
+    toast(d.disclaimer);
+  }catch(e){ const b=document.getElementById('nl_go'); if(b){ b.disabled=false; b.textContent='Fill from description'; } toast(e.message); }
+}
 async function doSearch(){
   let path, query={};
   if(state.type==='flights'){ query={from:q('q_from'),to:q('q_to'),date:q('q_date')}; path='/v1/flights/search?from='+encodeURIComponent(query.from)+'&to='+encodeURIComponent(query.to)+'&date='+query.date; }

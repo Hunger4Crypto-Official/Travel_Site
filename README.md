@@ -123,6 +123,22 @@ Together the paid tiers deliver concrete, honest member value: waived booking se
 (Globetrotter), higher loyalty multipliers, and the plumbing for provider closed-user-group rates
 to surface only to members when a supplier offers them.
 
+## Natural-language search assistant (optional, local)
+
+An opt-in helper that turns free text ("cheap flight from LA to New York in May") into a suggested
+structured search query, backed by a local [Ollama](https://ollama.com) model. It is strictly
+assistive and deliberately walled off from money and compliance: it never sees or produces prices,
+ranking, fees, booking, refunds, or eligibility. The model output is passed through a strict
+sanitizer that keeps only whitelisted, well-formed fields (type, airport codes, dates, city), so a
+hallucinated key or a price can never reach the form. The suggestion only pre-fills the search
+inputs; the deterministic engine and validators remain the single source of truth.
+
+- **Off by default.** Set `ASSISTANT_ENABLED=true` with `OLLAMA_URL` (default `http://localhost:11434`)
+  and `OLLAMA_MODEL` (default `llama3.2`) pointing at your own Ollama server. Nothing leaves your
+  infrastructure and there is no per-call cost. `GET /v1/assistant` reports status;
+  `POST /v1/assistant/parse` returns a suggestion plus a disclaimer. The web app shows a "Describe
+  your trip" box only when the assistant is enabled.
+
 ## Lowest-price comparison
 
 For each vertical the engine fans out to every connected provider in parallel, then makes the

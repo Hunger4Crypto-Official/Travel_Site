@@ -454,6 +454,31 @@ paths:
         '400': { description: Invalid amount or not enough points. }
         '401': { description: Not signed in. }
         '404': { description: Loyalty is not enabled. }
+  /v1/assistant:
+    get:
+      security: []
+      summary: Assistant status (whether the natural-language search helper is enabled, and its model).
+      responses:
+        '200': { description: Enabled flag and model name. }
+        '404': { description: The assistant is not enabled on this deployment. }
+  /v1/assistant/parse:
+    post:
+      security: []
+      summary: Turn free text into a SUGGESTED structured search query. Assistive only; never returns prices or booking. The suggestion is reviewed by the caller and validated by the engine.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, maxLength: 400, description: 'A traveler request in plain language.' }
+      responses:
+        '200': { description: A whitelisted suggestion (type/from/to/date/city/checkin/checkout, any of which may be absent) plus a disclaimer. }
+        '400': { description: Empty or overlong input. }
+        '404': { description: The assistant is not enabled. }
+        '502': { description: The local model is unavailable. }
   /v1/airport/info:
     get:
       summary: Look up airport information.

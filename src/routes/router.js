@@ -16,7 +16,8 @@ const methodAllows = new Map([
   ['/v1/billing/subscribe', 'POST, OPTIONS'],
   ['/v1/billing/cancel', 'POST, OPTIONS'],
   ['/v1/billing/webhook', 'POST, OPTIONS'],
-  ['/v1/loyalty/redeem', 'POST, OPTIONS']
+  ['/v1/loyalty/redeem', 'POST, OPTIONS'],
+  ['/v1/assistant/parse', 'POST, OPTIONS']
 ]);
 
 // The method set a path advertises. Order-item paths (/v1/orders/<id>) are
@@ -30,6 +31,7 @@ function allowedMethods(pathname) {
 const authPaths = new Set(['/v1/auth/signup', '/v1/auth/login', '/v1/auth/logout', '/v1/me']);
 const billingPaths = new Set(['/v1/billing', '/v1/billing/subscribe', '/v1/billing/cancel', '/v1/billing/webhook']);
 const loyaltyPaths = new Set(['/v1/loyalty', '/v1/loyalty/redeem']);
+const assistantPaths = new Set(['/v1/assistant', '/v1/assistant/parse']);
 
 const routeMap = new Map([
   ['/flights/search', 'flights'],
@@ -46,7 +48,7 @@ const routeMap = new Map([
 
 // Versioned routes advertised in discovery responses (the unversioned aliases
 // stay available but are not promoted).
-const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/billing', '/v1/loyalty', '/v1/trust', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
+const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/billing', '/v1/loyalty', '/v1/assistant', '/v1/trust', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
@@ -63,7 +65,7 @@ const staticAssets = new Map([
   ['/icon.svg', 'image/svg+xml']
 ]);
 
-export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, assets = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null }) {
+export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, assets = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null, assistantService = null }) {
   const context = createRequestContext(req);
   setHeaders(res, responseHeaders({ requestId: context.requestId, origin: req.headers.origin, allowedOrigins: config.allowedOrigins }));
 
@@ -220,6 +222,24 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     }
   }
 
+  // Natural-language search assistant (local Ollama). Assistive only: it returns
+  // a suggested structured query the caller reviews. Public; never touches money.
+  if (assistantPaths.has(pathname)) {
+    if (!assistantService) return fail(404, 'The assistant is not enabled on this deployment', { path: pathname });
+    try {
+      if (pathname === '/v1/assistant') return ok(200, assistantService.status());
+      const body = await readJsonBody(req);
+      return ok(200, await assistantService.parseSearch(body.text));
+    } catch (err) {
+      const statusCode = err.statusCode || 500;
+      // 400 (bad input) and 502 (model unavailable) carry client-safe messages;
+      // only a true internal 500 is masked.
+      const message = statusCode === 500 ? 'Unexpected error' : err.message;
+      if (statusCode >= 500) logger?.warn('Assistant request failed', { requestId: context.requestId, error: err.message });
+      return fail(statusCode, message);
+    }
+  }
+
   const authConfig = protectedPaths.has(pathname)
     ? { ...config, requireApiKey: config.requireApiKey || config.apiKeys.length > 0 }
     : config;
@@ -344,6 +364,7 @@ function serviceIndex(brand, now = Date.now()) {
       orders: '/v1/orders',
       billing: '/v1/billing',
       loyalty: '/v1/loyalty',
+      assistant: '/v1/assistant',
       airport: '/v1/airport/info?code=LAX',
       tracking: '/v1/flights/live?icao24=4b1814'
     }

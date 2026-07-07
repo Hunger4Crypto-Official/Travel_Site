@@ -321,6 +321,69 @@ paths:
         '200': { description: The member profile (public shape). }
         '401': { description: Not signed in. }
         '404': { description: Accounts are not enabled on this deployment. }
+  /v1/orders:
+    get:
+      security: []
+      summary: List the caller's booking orders (owner-scoped by session or API key).
+      responses:
+        '200': { description: The caller's orders. }
+        '404': { description: Booking is not enabled on this deployment. }
+    post:
+      security: []
+      summary: Book an offer via the aggregator (merchant of record). Adds a tier-aware service fee.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, offer, passengers, contact]
+              properties:
+                type: { type: string, enum: [flights, hotels, cars] }
+                offer: { type: object, description: 'A selected offer snapshot (id, price, and provider detail from a search response).' }
+                passengers:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [givenName, familyName]
+                    properties:
+                      givenName: { type: string }
+                      familyName: { type: string }
+                contact:
+                  type: object
+                  required: [email]
+                  properties:
+                    email: { type: string, format: email }
+                    phone: { type: string }
+      responses:
+        '201': { description: The confirmed order (confirmation, provider reference, and an all-in total including the service fee). }
+        '400': { description: Invalid body, offer, passengers, or contact. }
+        '404': { description: Booking is not enabled on this deployment. }
+        '502': { description: The aggregator could not complete the booking. }
+  /v1/orders/{id}:
+    get:
+      security: []
+      summary: Fetch one of the caller's orders.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: The order. }
+        '404': { description: Order not found (or not owned by the caller). }
+    delete:
+      security: []
+      summary: Cancel one of the caller's orders.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: The cancelled order, with any refund. }
+        '404': { description: Order not found (or not owned by the caller). }
   /v1/airport/info:
     get:
       summary: Look up airport information.

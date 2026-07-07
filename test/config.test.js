@@ -74,7 +74,18 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
     ALERTS_FILE: '/tmp/alerts.jsonl',
     ALERTS_MAX_ENTRIES: '50',
     ALERTS_CHECK_INTERVAL_MS: '1000',
-    ALERTS_WEBHOOKS_ENABLED: 'true'
+    ALERTS_WEBHOOKS_ENABLED: 'true',
+    ACCOUNTS_ENABLED: 'false',
+    ACCOUNTS_FILE: '/tmp/accounts.jsonl',
+    ACCOUNTS_MAX_ENTRIES: '5',
+    SESSION_SECRET: 'sekret',
+    SESSION_TTL_MS: '1000',
+    COOKIE_SECURE: 'true',
+    BOOKING_ENABLED: 'false',
+    ORDERS_FILE: '/tmp/orders.jsonl',
+    ORDERS_MAX_ENTRIES: '7',
+    DUFFEL_TOKEN: 'duf',
+    DUFFEL_ENV: 'production'
   });
 
   assert.equal(config.nodeEnv, 'production');
@@ -111,6 +122,18 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
   assert.equal(config.alertsMaxEntries, 50);
   assert.equal(config.alertsCheckIntervalMs, 1000);
   assert.equal(config.alertsWebhooksEnabled, true);
+
+  assert.equal(config.accountsEnabled, false);
+  assert.equal(config.accountsFile, '/tmp/accounts.jsonl');
+  assert.equal(config.accountsMaxEntries, 5);
+  assert.equal(config.sessionSecret, 'sekret');
+  assert.equal(config.sessionTtlMs, 1000);
+  assert.equal(config.cookieSecure, true);
+  assert.equal(config.bookingEnabled, false);
+  assert.equal(config.ordersFile, '/tmp/orders.jsonl');
+  assert.equal(config.ordersMaxEntries, 7);
+  assert.equal(config.duffelToken, 'duf');
+  assert.equal(config.duffelEnv, 'production');
 });
 
 test('loadConfig auth flag: explicit REQUIRE_API_KEY and production-without-keys', () => {

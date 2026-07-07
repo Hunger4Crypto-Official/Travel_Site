@@ -13,7 +13,8 @@ const integerSettings = [
   ['ALERTS_MAX_ENTRIES', 1000],
   ['ALERTS_CHECK_INTERVAL_MS', 300000],
   ['ACCOUNTS_MAX_ENTRIES', 100000],
-  ['SESSION_TTL_MS', 604800000]
+  ['SESSION_TTL_MS', 604800000],
+  ['ORDERS_MAX_ENTRIES', 50000]
 ];
 
 export function loadConfig(env = process.env) {
@@ -81,7 +82,14 @@ export function loadConfig(env = process.env) {
     accountsMaxEntries: values.ACCOUNTS_MAX_ENTRIES,
     sessionSecret: env.SESSION_SECRET || null,
     sessionTtlMs: values.SESSION_TTL_MS,
-    cookieSecure: env.COOKIE_SECURE === 'true' || nodeEnv === 'production'
+    cookieSecure: env.COOKIE_SECURE === 'true' || nodeEnv === 'production',
+
+    // Managed booking (/v1/orders): aggregators are the merchant of record.
+    bookingEnabled: env.BOOKING_ENABLED !== 'false',
+    ordersFile: env.ORDERS_FILE || null,
+    ordersMaxEntries: values.ORDERS_MAX_ENTRIES,
+    duffelToken: env.DUFFEL_TOKEN || null,
+    duffelEnv: env.DUFFEL_ENV === 'production' ? 'production' : 'test'
   };
 }
 

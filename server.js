@@ -19,6 +19,7 @@ import { createNotifier } from './src/utils/notifier.js';
 import { AccountStore } from './src/accounts/accountStore.js';
 import { AccountService } from './src/accounts/accountService.js';
 import { createSessionManager } from './src/accounts/sessions.js';
+import { createBookingService } from './src/booking/index.js';
 
 loadDotEnv({ path: new URL('./.env', import.meta.url).pathname });
 const config = loadConfig();
@@ -66,7 +67,9 @@ const pages = {
   admin: loadPage('./public/admin.html', logger)
 };
 
-const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, accountService }));
+const bookingService = createBookingService(config);
+
+const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, accountService, bookingService }));
 
 server.listen(config.port, () => {
   logger.info('Server started', { service: brand.name, acronym: brand.acronym, port: config.port, nodeEnv: config.nodeEnv });

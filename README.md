@@ -75,6 +75,23 @@ key (API keys remain for programmatic clients and the ops-only `/ready` and `/me
   for production scale.
 - Accounts can be disabled entirely with `ACCOUNTS_ENABLED=false` (the auth routes then return 404).
 
+## Managed booking
+
+Search finds the lowest price; booking closes the loop. `POST /v1/orders` books a selected offer
+through an aggregator that is the merchant of record (Duffel for flights, a bedbank such as
+Hotelbeds for hotels), so the club owns the member relationship without taking on card processing
+or ticketing liability directly. Orders are owner-scoped: `GET /v1/orders` lists yours,
+`GET /v1/orders/<id>` fetches one, `DELETE /v1/orders/<id>` cancels it.
+
+- **Order lifecycle:** `pending -> confirmed` on a successful booking, `failed` (persisted and
+  auditable) when the aggregator declines, and `cancelled` (with any refund) after a cancel.
+- **All-in, tier-aware pricing:** the trip total plus a booking service fee, disclosed separately.
+  The Globetrotter (gold) tier has the fee waived; other tiers pay a flat percentage.
+- **Sandbox by default:** each adapter runs in a deterministic simulation until real credentials
+  are set (`DUFFEL_TOKEN` for flights; `HOTELBEDS_API_KEY`/`HOTELBEDS_SECRET` for hotels), so the
+  full flow, including confirmations and cancellations, is exercisable end to end without live keys.
+  Set `BOOKING_ENABLED=false` to disable `/v1/orders` entirely.
+
 ## Lowest-price comparison
 
 For each vertical the engine fans out to every connected provider in parallel, then makes the
@@ -147,6 +164,10 @@ POST   /v1/auth/signup   {"email":"you@example.com","password":"correct-horse"} 
 POST   /v1/auth/login    {"email":"you@example.com","password":"correct-horse"}
 POST   /v1/auth/logout
 GET    /v1/me                                    # the signed-in member (tier, benefits, loyalty)
+GET    /v1/orders                                # list your booking orders
+POST   /v1/orders   {"type":"flights","offer":{...},"passengers":[{"givenName":"Ada","familyName":"Lovelace"}],"contact":{"email":"you@example.com"}}
+GET    /v1/orders/<id>                           # fetch one order
+DELETE /v1/orders/<id>                           # cancel one order
 GET /v1/airport/info?code=LAX
 GET /v1/flights/live?icao24=4b1814
 ```

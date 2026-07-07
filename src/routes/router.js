@@ -9,10 +9,19 @@ const SESSION_COOKIE = 'tc_session';
 // in its Allow header. Every other path is GET-only.
 const methodAllows = new Map([
   ['/v1/alerts', 'GET, POST, DELETE, OPTIONS'],
+  ['/v1/orders', 'GET, POST, OPTIONS'],
   ['/v1/auth/signup', 'POST, OPTIONS'],
   ['/v1/auth/login', 'POST, OPTIONS'],
   ['/v1/auth/logout', 'POST, OPTIONS']
 ]);
+
+// The method set a path advertises. Order-item paths (/v1/orders/<id>) are
+// dynamic, so they are matched by prefix rather than by an exact map key.
+function allowedMethods(pathname) {
+  if (methodAllows.has(pathname)) return methodAllows.get(pathname);
+  if (pathname.startsWith('/v1/orders/')) return 'GET, DELETE, OPTIONS';
+  return 'GET, OPTIONS';
+}
 
 const authPaths = new Set(['/v1/auth/signup', '/v1/auth/login', '/v1/auth/logout', '/v1/me']);
 
@@ -31,7 +40,7 @@ const routeMap = new Map([
 
 // Versioned routes advertised in discovery responses (the unversioned aliases
 // stay available but are not promoted).
-const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/trust', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
+const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/trust', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
@@ -40,7 +49,7 @@ const protectedPaths = new Set(['/ready', '/metrics']);
 // fetch, while still forbidding framing, external sources, and form exfiltration.
 const PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
-export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, accountService = null }) {
+export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, accountService = null, bookingService = null }) {
   const context = createRequestContext(req);
   setHeaders(res, responseHeaders({ requestId: context.requestId, origin: req.headers.origin, allowedOrigins: config.allowedOrigins }));
 
@@ -69,7 +78,7 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   // declare their own method set. OPTIONS is already handled above. Declared
   // routes are enforced exactly (so GET on a POST-only route is a 405 too);
   // every other route is GET-only.
-  const allow = methodAllows.get(pathname) || 'GET, OPTIONS';
+  const allow = allowedMethods(pathname);
   if (!allow.split(', ').includes(req.method)) {
     res.setHeader('Allow', allow);
     return fail(405, 'Method not allowed', { allow: allow.split(', ') });
@@ -158,6 +167,8 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   // Owner/rate-limit identity: the signed-in user when present, else the
   // API-key or anonymous principal from header auth.
   const principal = identity && !protectedPaths.has(pathname) ? `user:${identity.user.id}` : auth.principal;
+  // Membership tier drives member rates and the booking service fee.
+  const tier = identity ? identity.user.tier : 'free';
 
   if (pathname === '/ready') {
     const readiness = engine.readiness();
@@ -185,6 +196,24 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
         return ok(200, engine.deleteAlert(query.id, { principal }), { principal });
       }
       return ok(200, engine.listAlerts({ principal }), { principal });
+    }
+
+    // Managed booking. Owner-scoped orders; aggregators are the merchant of
+    // record. /v1/orders is the collection, /v1/orders/<id> a single order.
+    if (pathname === '/v1/orders' || pathname.startsWith('/v1/orders/')) {
+      if (!bookingService) return fail(404, 'Booking is not enabled on this deployment', { path: pathname });
+      if (pathname === '/v1/orders') {
+        if (req.method === 'POST') {
+          const body = await readJsonBody(req);
+          return ok(201, await bookingService.createOrder(body, { principal, tier }), { principal });
+        }
+        return ok(200, bookingService.listOrders({ principal }), { principal });
+      }
+      const orderId = decodeURIComponent(pathname.slice('/v1/orders/'.length));
+      if (req.method === 'DELETE') {
+        return ok(200, await bookingService.cancelOrder(orderId, { principal }), { principal });
+      }
+      return ok(200, bookingService.getOrder(orderId, { principal }), { principal });
     }
 
     // Rate-limit per authenticated principal when available, else per client IP.
@@ -244,6 +273,7 @@ function serviceIndex(brand, now = Date.now()) {
       cars: `/v1/cars/search?city=Miami&date=${carDate}`,
       priceHistory: '/v1/prices/history?type=flights&from=LAX&to=JFK',
       alerts: '/v1/alerts',
+      orders: '/v1/orders',
       airport: '/v1/airport/info?code=LAX',
       tracking: '/v1/flights/live?icao24=4b1814'
     }

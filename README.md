@@ -109,6 +109,20 @@ fees.
   `STRIPE_WEBHOOK_SECRET`, and the per-tier price ids (`STRIPE_PRICE_SILVER`, `STRIPE_PRICE_GOLD`) to
   go live. `BILLING_ENABLED=false` disables `/v1/billing` entirely.
 
+## Loyalty program
+
+Every confirmed booking earns loyalty points equal to the trip total times the member's tier
+multiplier (Explorer 1x, Voyager 2x, Globetrotter 3x). `GET /v1/loyalty` shows the balance,
+multiplier, and transaction history; `POST /v1/loyalty/redeem` burns points for account credit at
+100 points per USD. Balances live on the member record; the ledger keeps the per-transaction
+history (in-memory by default, best-effort JSONL when `LOYALTY_FILE` is set). The earn is wired into
+booking, so it is a real member benefit that compounds with the waived fees and member rates of the
+paid tiers. `LOYALTY_ENABLED=false` disables `/v1/loyalty`.
+
+Together the paid tiers deliver concrete, honest member value: waived booking service fees
+(Globetrotter), higher loyalty multipliers, and the plumbing for provider closed-user-group rates
+to surface only to members when a supplier offers them.
+
 ## Lowest-price comparison
 
 For each vertical the engine fans out to every connected provider in parallel, then makes the
@@ -189,6 +203,8 @@ GET    /v1/billing                               # your subscription status
 POST   /v1/billing/subscribe   {"tier":"gold"}   # upgrade to a paid tier
 POST   /v1/billing/cancel                        # cancel and downgrade to free
 POST   /v1/billing/webhook                       # gateway events (signature-verified)
+GET    /v1/loyalty                               # your points balance and history
+POST   /v1/loyalty/redeem   {"points":500}       # redeem points for account credit
 GET /v1/airport/info?code=LAX
 GET /v1/flights/live?icao24=4b1814
 ```

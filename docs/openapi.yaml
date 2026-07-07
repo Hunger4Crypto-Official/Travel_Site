@@ -428,6 +428,32 @@ paths:
         '400': { description: Malformed webhook payload. }
         '401': { description: Invalid webhook signature. }
         '404': { description: Billing is not enabled. }
+  /v1/loyalty:
+    get:
+      security: []
+      summary: The signed-in member's loyalty balance, tier multiplier, and transaction history.
+      responses:
+        '200': { description: Balance, multiplier, points-per-USD, and recent transactions. }
+        '401': { description: Not signed in. }
+        '404': { description: Loyalty is not enabled on this deployment. }
+  /v1/loyalty/redeem:
+    post:
+      security: []
+      summary: Redeem loyalty points for account credit (100 points per USD).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [points]
+              properties:
+                points: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: The new balance and the credit granted. }
+        '400': { description: Invalid amount or not enough points. }
+        '401': { description: Not signed in. }
+        '404': { description: Loyalty is not enabled. }
   /v1/airport/info:
     get:
       summary: Look up airport information.

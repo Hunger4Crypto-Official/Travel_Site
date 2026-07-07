@@ -47,6 +47,18 @@ test('createOrder books, adds a tier-aware service fee, and returns the order', 
   assert.equal(order.history.at(-1).status, 'confirmed');
 });
 
+test('a wired loyalty service earns points for members and is skipped for non-members', async () => {
+  const seen = [];
+  const loyalty = { earnForBooking: (owner) => { seen.push(owner); return owner.startsWith('user:') ? { points: 42 } : null; } };
+  const { service } = makeService([fakeAdapter()]);
+  service.loyalty = loyalty;
+  const member = await service.createOrder({ type: 'flights', offer: offer(), passengers: goodPax, contact: goodContact }, { principal: 'user:1', tier: 'free' });
+  assert.equal(member.loyaltyEarned, 42);
+  const anon = await service.createOrder({ type: 'flights', offer: offer(), passengers: goodPax, contact: goodContact }, { principal: 'anonymous', tier: 'free' });
+  assert.equal(anon.loyaltyEarned, 0);
+  assert.deepEqual(seen, ['user:1', 'anonymous']);
+});
+
 test('the gold tier has its booking service fee waived', async () => {
   const { service } = makeService([fakeAdapter()]);
   const order = await service.createOrder(

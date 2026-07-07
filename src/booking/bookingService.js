@@ -9,8 +9,9 @@ const DEFAULT_FEE_RATE = 0.02; // 2% booking service fee, waived for the top tie
 // record; this service owns validation, the tier-aware service fee, owner
 // scoping, and the order lifecycle (pending -> confirmed/failed -> cancelled).
 export class BookingService {
-  constructor({ store, adapters = [], now = () => Date.now(), feeRate = DEFAULT_FEE_RATE } = {}) {
+  constructor({ store, adapters = [], loyalty = null, now = () => Date.now(), feeRate = DEFAULT_FEE_RATE } = {}) {
     this.store = store;
+    this.loyalty = loyalty;
     this.now = now;
     this.feeRate = feeRate;
     this.adapters = new Map();
@@ -66,6 +67,12 @@ export class BookingService {
       lastError: null,
       history: [{ at: this.now(), status, note: 'Booked' }]
     });
+
+    // Award loyalty points to the signed-in member who booked.
+    if (this.loyalty) {
+      const earned = this.loyalty.earnForBooking(order.owner, order);
+      if (earned) return publicOrder(this.store.update(order.id, { loyaltyEarned: earned.points }));
+    }
     return publicOrder(order);
   }
 
@@ -154,6 +161,7 @@ export function publicOrder(order) {
     serviceFee: order.serviceFee,
     total: order.total,
     bookedPrice: order.bookedPrice ?? null,
+    loyaltyEarned: order.loyaltyEarned ?? 0,
     refund: order.refund ?? null,
     live: order.live,
     lastError: order.lastError ?? null,

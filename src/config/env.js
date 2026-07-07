@@ -14,7 +14,8 @@ const integerSettings = [
   ['ALERTS_CHECK_INTERVAL_MS', 300000],
   ['ACCOUNTS_MAX_ENTRIES', 100000],
   ['SESSION_TTL_MS', 604800000],
-  ['ORDERS_MAX_ENTRIES', 50000]
+  ['ORDERS_MAX_ENTRIES', 50000],
+  ['LOYALTY_MAX_ENTRIES', 100000]
 ];
 
 export function loadConfig(env = process.env) {
@@ -97,7 +98,12 @@ export function loadConfig(env = process.env) {
     stripeSecretKey: env.STRIPE_SECRET_KEY || null,
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET || null,
     stripePriceSilver: env.STRIPE_PRICE_SILVER || null,
-    stripePriceGold: env.STRIPE_PRICE_GOLD || null
+    stripePriceGold: env.STRIPE_PRICE_GOLD || null,
+
+    // Loyalty program (/v1/loyalty): points earned on bookings, redeemed for credit.
+    loyaltyEnabled: env.LOYALTY_ENABLED !== 'false',
+    loyaltyFile: env.LOYALTY_FILE || null,
+    loyaltyMaxEntries: values.LOYALTY_MAX_ENTRIES
   };
 }
 

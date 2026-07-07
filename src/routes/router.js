@@ -15,7 +15,8 @@ const methodAllows = new Map([
   ['/v1/auth/logout', 'POST, OPTIONS'],
   ['/v1/billing/subscribe', 'POST, OPTIONS'],
   ['/v1/billing/cancel', 'POST, OPTIONS'],
-  ['/v1/billing/webhook', 'POST, OPTIONS']
+  ['/v1/billing/webhook', 'POST, OPTIONS'],
+  ['/v1/loyalty/redeem', 'POST, OPTIONS']
 ]);
 
 // The method set a path advertises. Order-item paths (/v1/orders/<id>) are
@@ -28,6 +29,7 @@ function allowedMethods(pathname) {
 
 const authPaths = new Set(['/v1/auth/signup', '/v1/auth/login', '/v1/auth/logout', '/v1/me']);
 const billingPaths = new Set(['/v1/billing', '/v1/billing/subscribe', '/v1/billing/cancel', '/v1/billing/webhook']);
+const loyaltyPaths = new Set(['/v1/loyalty', '/v1/loyalty/redeem']);
 
 const routeMap = new Map([
   ['/flights/search', 'flights'],
@@ -44,7 +46,7 @@ const routeMap = new Map([
 
 // Versioned routes advertised in discovery responses (the unversioned aliases
 // stay available but are not promoted).
-const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/billing', '/v1/trust', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
+const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/billing', '/v1/loyalty', '/v1/trust', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
@@ -53,7 +55,7 @@ const protectedPaths = new Set(['/ready', '/metrics']);
 // fetch, while still forbidding framing, external sources, and form exfiltration.
 const PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
-export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, accountService = null, bookingService = null, billingService = null }) {
+export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null }) {
   const context = createRequestContext(req);
   setHeaders(res, responseHeaders({ requestId: context.requestId, origin: req.headers.origin, allowedOrigins: config.allowedOrigins }));
 
@@ -183,6 +185,25 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     }
   }
 
+  // Loyalty program. Both routes require a signed-in member.
+  if (loyaltyPaths.has(pathname)) {
+    if (!loyaltyService) return fail(404, 'Loyalty is not enabled on this deployment', { path: pathname });
+    if (!identity) return fail(401, 'Sign in to view your loyalty balance');
+    const userPrincipal = `user:${identity.user.id}`;
+    try {
+      if (pathname === '/v1/loyalty') {
+        return ok(200, loyaltyService.summary(identity.user), { principal: userPrincipal });
+      }
+      const body = await readJsonBody(req);
+      return ok(200, loyaltyService.redeem(identity.user, body.points), { principal: userPrincipal });
+    } catch (err) {
+      const statusCode = err.statusCode || 500;
+      const message = statusCode >= 500 ? 'Unexpected error' : err.message;
+      if (statusCode >= 500) logger?.warn('Loyalty request failed', { requestId: context.requestId, error: err.message });
+      return fail(statusCode, message);
+    }
+  }
+
   const authConfig = protectedPaths.has(pathname)
     ? { ...config, requireApiKey: config.requireApiKey || config.apiKeys.length > 0 }
     : config;
@@ -306,6 +327,7 @@ function serviceIndex(brand, now = Date.now()) {
       alerts: '/v1/alerts',
       orders: '/v1/orders',
       billing: '/v1/billing',
+      loyalty: '/v1/loyalty',
       airport: '/v1/airport/info?code=LAX',
       tracking: '/v1/flights/live?icao24=4b1814'
     }

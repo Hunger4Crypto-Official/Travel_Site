@@ -3,6 +3,18 @@ import { authenticate, createRequestContext, responseHeaders } from '../utils/ht
 import { readJsonBody } from '../utils/requestBody.js';
 
 const SOURCE = 'the-travel-club';
+const SESSION_COOKIE = 'tc_session';
+
+// Routes that accept a non-GET method, and the full method set each advertises
+// in its Allow header. Every other path is GET-only.
+const methodAllows = new Map([
+  ['/v1/alerts', 'GET, POST, DELETE, OPTIONS'],
+  ['/v1/auth/signup', 'POST, OPTIONS'],
+  ['/v1/auth/login', 'POST, OPTIONS'],
+  ['/v1/auth/logout', 'POST, OPTIONS']
+]);
+
+const authPaths = new Set(['/v1/auth/signup', '/v1/auth/login', '/v1/auth/logout', '/v1/me']);
 
 const routeMap = new Map([
   ['/flights/search', 'flights'],
@@ -19,7 +31,7 @@ const routeMap = new Map([
 
 // Versioned routes advertised in discovery responses (the unversioned aliases
 // stay available but are not promoted).
-const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/trust'];
+const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/trust', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
@@ -28,7 +40,7 @@ const protectedPaths = new Set(['/ready', '/metrics']);
 // fetch, while still forbidding framing, external sources, and form exfiltration.
 const PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
-export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {} }) {
+export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, accountService = null }) {
   const context = createRequestContext(req);
   setHeaders(res, responseHeaders({ requestId: context.requestId, origin: req.headers.origin, allowedOrigins: config.allowedOrigins }));
 
@@ -53,14 +65,19 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     ? url.pathname.slice(0, -1)
     : url.pathname;
 
-  // The API is GET-only except the alerts collection, which also takes POST
-  // (create) and DELETE (remove).
-  const alertsWrite = pathname === '/v1/alerts' && (req.method === 'POST' || req.method === 'DELETE');
-  if (req.method !== 'GET' && !alertsWrite) {
-    const allow = pathname === '/v1/alerts' ? 'GET, POST, DELETE, OPTIONS' : 'GET, OPTIONS';
+  // The API is GET-only except a handful of collections (alerts, auth) that
+  // declare their own method set. OPTIONS is already handled above. Declared
+  // routes are enforced exactly (so GET on a POST-only route is a 405 too);
+  // every other route is GET-only.
+  const allow = methodAllows.get(pathname) || 'GET, OPTIONS';
+  if (!allow.split(', ').includes(req.method)) {
     res.setHeader('Allow', allow);
     return fail(405, 'Method not allowed', { allow: allow.split(', ') });
   }
+
+  // Identity from the session cookie (consumer web app). Independent of the
+  // API-key auth used by programmatic clients; either can satisfy access.
+  const identity = accountService ? accountService.identify(readCookie(req, SESSION_COOKIE)) : null;
 
   logger?.info('Request started', { requestId: context.requestId, method: req.method, path: pathname });
 
@@ -101,13 +118,46 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     return sendText(res, 200, openapiSpec, 'application/yaml', context, logger);
   }
 
+  // Accounts and sessions. Public (no API key): these are how a consumer signs
+  // in to the web app, and login must work before any credential exists.
+  if (authPaths.has(pathname)) {
+    if (!accountService) return fail(404, 'Accounts are not enabled on this deployment', { path: pathname });
+    try {
+      if (pathname === '/v1/me') {
+        if (!identity) return fail(401, 'Not signed in');
+        return ok(200, accountService.me(identity.user), { principal: `user:${identity.user.id}` });
+      }
+      if (pathname === '/v1/auth/logout') {
+        res.setHeader('Set-Cookie', clearCookie(config));
+        return ok(200, { signedOut: true });
+      }
+      const body = await readJsonBody(req);
+      const result = pathname === '/v1/auth/signup' ? accountService.signup(body) : accountService.login(body);
+      res.setHeader('Set-Cookie', sessionCookie(result.token, config));
+      return ok(pathname === '/v1/auth/signup' ? 201 : 200, { user: result.user }, { principal: `user:${result.user.id}` });
+    } catch (err) {
+      const statusCode = err.statusCode || 500;
+      const message = statusCode >= 500 ? 'Unexpected error' : err.message;
+      if (statusCode >= 500) logger?.warn('Auth request failed', { requestId: context.requestId, error: err.message });
+      return fail(statusCode, message);
+    }
+  }
+
   const authConfig = protectedPaths.has(pathname)
     ? { ...config, requireApiKey: config.requireApiKey || config.apiKeys.length > 0 }
     : config;
   const auth = authenticate(req, authConfig);
-  if ((authConfig.requireApiKey || protectedPaths.has(pathname)) && !auth.ok) {
+  // A signed-in session satisfies auth for consumer routes, but never for the
+  // ops-only protected paths, which still require an API key.
+  const authed = auth.ok || Boolean(identity && !protectedPaths.has(pathname));
+  if ((authConfig.requireApiKey || protectedPaths.has(pathname)) && !authed) {
+    // authed is false only when auth.ok is false, so authenticate() has already
+    // supplied a concrete statusCode and message.
     return fail(auth.statusCode, auth.message);
   }
+  // Owner/rate-limit identity: the signed-in user when present, else the
+  // API-key or anonymous principal from header auth.
+  const principal = identity && !protectedPaths.has(pathname) ? `user:${identity.user.id}` : auth.principal;
 
   if (pathname === '/ready') {
     const readiness = engine.readiness();
@@ -122,27 +172,27 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     const query = Object.fromEntries(url.searchParams.entries());
 
     if (pathname === '/v1/prices/history') {
-      return ok(200, engine.priceHistorySnapshot(query.type, query), { principal: auth.principal });
+      return ok(200, engine.priceHistorySnapshot(query.type, query), { principal });
     }
 
     // Price alerts / saved searches (owner-scoped by principal).
     if (pathname === '/v1/alerts') {
       if (req.method === 'POST') {
         const body = await readJsonBody(req);
-        return ok(201, engine.createAlert(body.type, body, { principal: auth.principal }), { principal: auth.principal });
+        return ok(201, engine.createAlert(body.type, body, { principal }), { principal });
       }
       if (req.method === 'DELETE') {
-        return ok(200, engine.deleteAlert(query.id, { principal: auth.principal }), { principal: auth.principal });
+        return ok(200, engine.deleteAlert(query.id, { principal }), { principal });
       }
-      return ok(200, engine.listAlerts({ principal: auth.principal }), { principal: auth.principal });
+      return ok(200, engine.listAlerts({ principal }), { principal });
     }
 
     // Rate-limit per authenticated principal when available, else per client IP.
-    const clientKey = auth.principal && auth.principal !== 'anonymous' ? auth.principal : clientIp(req);
+    const clientKey = principal && principal !== 'anonymous' ? principal : clientIp(req);
 
     if (pathname === '/v1/flights/calendar') {
       const calendar = await engine.flexibleSearch('flights', query, { clientKey }, { flexDays: query.flex });
-      return ok(200, calendar, { principal: auth.principal });
+      return ok(200, calendar, { principal });
     }
 
     const type = routeMap.get(pathname);
@@ -151,7 +201,7 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     }
 
     const data = await engine.search(type, query, { clientKey });
-    return ok(200, data, { principal: auth.principal });
+    return ok(200, data, { principal });
   } catch (err) {
     const statusCode = err.statusCode || 500;
     const publicMessage = statusCode >= 500 ? 'Unexpected error' : err.message;
@@ -185,6 +235,9 @@ function serviceIndex(brand, now = Date.now()) {
       readiness: '/ready',
       metrics: '/metrics',
       trust: '/v1/trust',
+      signup: '/v1/auth/signup',
+      login: '/v1/auth/login',
+      me: '/v1/me',
       flights: `/v1/flights/search?from=LAX&to=JFK&date=${depart}`,
       flightsCalendar: `/v1/flights/calendar?from=LAX&to=JFK&date=${depart}&flex=3`,
       hotels: `/v1/hotels/search?city=Las%20Vegas&checkin=${checkin}&checkout=${checkout}`,
@@ -241,6 +294,29 @@ function trustManifest(brand) {
 
 export function wantsHtml(req) {
   return String(req.headers.accept || '').includes('text/html');
+}
+
+export function readCookie(req, name) {
+  const raw = req.headers.cookie;
+  if (!raw) return null;
+  for (const part of raw.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
+  }
+  return null;
+}
+
+function sessionCookie(token, config) {
+  const parts = [`${SESSION_COOKIE}=${token}`, 'HttpOnly', 'SameSite=Lax', 'Path=/', `Max-Age=${Math.floor(config.sessionTtlMs / 1000)}`];
+  if (config.cookieSecure) parts.push('Secure');
+  return parts.join('; ');
+}
+
+function clearCookie(config) {
+  const parts = [`${SESSION_COOKIE}=`, 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=0'];
+  if (config.cookieSecure) parts.push('Secure');
+  return parts.join('; ');
 }
 
 export function clientIp(req) {

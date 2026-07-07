@@ -11,7 +11,9 @@ const integerSettings = [
   ['CURRENCY_TTL_MS', 3600000],
   ['PRICE_HISTORY_MAX_ENTRIES', 5000],
   ['ALERTS_MAX_ENTRIES', 1000],
-  ['ALERTS_CHECK_INTERVAL_MS', 300000]
+  ['ALERTS_CHECK_INTERVAL_MS', 300000],
+  ['ACCOUNTS_MAX_ENTRIES', 100000],
+  ['SESSION_TTL_MS', 604800000]
 ];
 
 export function loadConfig(env = process.env) {
@@ -71,7 +73,15 @@ export function loadConfig(env = process.env) {
     alertsFile: env.ALERTS_FILE || null,
     alertsMaxEntries: values.ALERTS_MAX_ENTRIES,
     alertsCheckIntervalMs: values.ALERTS_CHECK_INTERVAL_MS,
-    alertsWebhooksEnabled: env.ALERTS_WEBHOOKS_ENABLED === 'true'
+    alertsWebhooksEnabled: env.ALERTS_WEBHOOKS_ENABLED === 'true',
+
+    // Accounts, sessions, and membership (/v1/auth/* + /v1/me)
+    accountsEnabled: env.ACCOUNTS_ENABLED !== 'false',
+    accountsFile: env.ACCOUNTS_FILE || null,
+    accountsMaxEntries: values.ACCOUNTS_MAX_ENTRIES,
+    sessionSecret: env.SESSION_SECRET || null,
+    sessionTtlMs: values.SESSION_TTL_MS,
+    cookieSecure: env.COOKIE_SECURE === 'true' || nodeEnv === 'production'
   };
 }
 

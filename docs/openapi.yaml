@@ -258,6 +258,69 @@ paths:
         '200': { description: Deleted. }
         '400': { description: Missing id. }
         '404': { description: Alert not found (or not owned by the caller). }
+  /v1/auth/signup:
+    post:
+      security: []
+      summary: Create a member account and start a session (sets an HttpOnly session cookie).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8, description: 'At least 8 characters.' }
+      responses:
+        '201':
+          description: The created member (public shape; never includes the password hash). A tc_session cookie is set.
+          headers:
+            Set-Cookie:
+              description: HttpOnly, SameSite=Lax session cookie (Secure in production).
+              schema: { type: string }
+        '400': { description: Invalid email or weak password. }
+        '404': { description: Accounts are not enabled on this deployment. }
+        '409': { description: An account with that email already exists. }
+  /v1/auth/login:
+    post:
+      security: []
+      summary: Sign in and start a session (sets an HttpOnly session cookie).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: The member (public shape). A tc_session cookie is set.
+          headers:
+            Set-Cookie:
+              description: HttpOnly, SameSite=Lax session cookie (Secure in production).
+              schema: { type: string }
+        '401': { description: Invalid email or password. }
+        '404': { description: Accounts are not enabled on this deployment. }
+  /v1/auth/logout:
+    post:
+      security: []
+      summary: End the current session (clears the session cookie).
+      responses:
+        '200':
+          description: Signed out; the tc_session cookie is cleared.
+        '404': { description: Accounts are not enabled on this deployment. }
+  /v1/me:
+    get:
+      security: []
+      summary: The signed-in member (tier, benefits, loyalty balance). Requires a session cookie.
+      responses:
+        '200': { description: The member profile (public shape). }
+        '401': { description: Not signed in. }
+        '404': { description: Accounts are not enabled on this deployment. }
   /v1/airport/info:
     get:
       summary: Look up airport information.

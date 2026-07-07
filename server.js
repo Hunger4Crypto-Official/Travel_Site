@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { brand } from './src/config/brand.js';
 import { loadDotEnv } from './src/config/dotenv.js';
 import { loadConfig } from './src/config/env.js';
@@ -15,6 +16,9 @@ import { CurrencyConverter } from './src/utils/currency.js';
 import { PriceHistoryStore } from './src/utils/priceHistory.js';
 import { AlertStore } from './src/utils/alertStore.js';
 import { createNotifier } from './src/utils/notifier.js';
+import { AccountStore } from './src/accounts/accountStore.js';
+import { AccountService } from './src/accounts/accountService.js';
+import { createSessionManager } from './src/accounts/sessions.js';
 
 loadDotEnv({ path: new URL('./.env', import.meta.url).pathname });
 const config = loadConfig();
@@ -29,6 +33,18 @@ const alertStore = config.alertsEnabled
   ? new AlertStore({ filePath: config.alertsFile, maxEntries: config.alertsMaxEntries })
   : null;
 const notifier = createNotifier({ enabled: config.alertsWebhooksEnabled, logger });
+
+let accountService = null;
+if (config.accountsEnabled) {
+  const sessionSecret = config.sessionSecret || randomBytes(32).toString('hex');
+  if (!config.sessionSecret) {
+    logger.warn('SESSION_SECRET is not set; using an ephemeral secret (sessions reset on restart)');
+  }
+  const accountStore = new AccountStore({ filePath: config.accountsFile, maxEntries: config.accountsMaxEntries });
+  const sessions = createSessionManager({ secret: sessionSecret, ttlMs: config.sessionTtlMs });
+  accountService = new AccountService({ store: accountStore, sessions });
+}
+
 const engine = new TravelEngine({
   providers: createProviders(config),
   cache: new MemoryCache({ ttlMs: config.cacheTtlMs, maxEntries: config.cacheMaxEntries }),
@@ -50,7 +66,7 @@ const pages = {
   admin: loadPage('./public/admin.html', logger)
 };
 
-const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages }));
+const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, accountService }));
 
 server.listen(config.port, () => {
   logger.info('Server started', { service: brand.name, acronym: brand.acronym, port: config.port, nodeEnv: config.nodeEnv });

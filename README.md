@@ -42,8 +42,9 @@ commitments and enforces each one in the API contract:
 ## Price alerts and saved searches
 
 A **watch** is a saved search; give it a `threshold` and it becomes a price alert. Watches are
-owner-scoped by the authenticated principal (the API-key fingerprint, or `anonymous` in keyless
-local dev), so callers only see and delete their own. A background sweep (`ALERTS_CHECK_INTERVAL_MS`)
+owner-scoped by the authenticated principal (the signed-in member `user:<id>`, an API-key
+fingerprint, or `anonymous` in keyless local dev), so callers only see and delete their own. A
+background sweep (`ALERTS_CHECK_INTERVAL_MS`)
 re-runs each watch cache-shared with normal search, records the price into price memory, and marks
 a watch `triggered` the first time its cheapest total crosses at/below the threshold (resetting when
 it climbs back). Manage them at `/v1/alerts` (`GET` list, `POST` create, `DELETE ?id=`).
@@ -55,6 +56,24 @@ it climbs back). Manage them at `/v1/alerts` (`GET` list, `POST` create, `DELETE
   literals, not DNS resolution, so a public hostname that resolves to a private IP is not fully
   covered; keep webhooks off unless you trust the operators who create alerts.
 - A watch whose date has passed is deactivated on the next sweep instead of erroring.
+
+## Accounts and membership
+
+Members sign up and sign in at `/v1/auth/signup` and `/v1/auth/login`; both set a stateless,
+HMAC-signed session cookie (`tc_session`, HttpOnly, SameSite=Lax, Secure in production). `/v1/me`
+returns the signed-in member and `/v1/auth/logout` clears the cookie. A valid session both scopes
+watches to that member and satisfies auth for consumer routes, so an end user never needs an API
+key (API keys remain for programmatic clients and the ops-only `/ready` and `/metrics`).
+
+- **Passwords** are hashed with `scrypt` (per-user random salt) using only `node:crypto`; the hash
+  never leaves the service, and no response shape includes it.
+- **Membership tiers** ship as a catalog (`src/accounts/membership.js`): Explorer (free), Voyager,
+  and Globetrotter. Higher tiers unlock member-only rates and higher loyalty multipliers; billing
+  and the member-rate gate arrive in later phases.
+- **Persistence** mirrors the rest of the engine: in-memory by default, best-effort JSONL when
+  `ACCOUNTS_FILE` is set, and a Postgres-backed store can replace it behind the same method surface
+  for production scale.
+- Accounts can be disabled entirely with `ACCOUNTS_ENABLED=false` (the auth routes then return 404).
 
 ## Lowest-price comparison
 
@@ -124,6 +143,10 @@ GET /v1/prices/history?type=flights&from=LAX&to=JFK
 GET    /v1/alerts                                # list your price alerts / saved searches
 POST   /v1/alerts   {"type":"flights","from":"LAX","to":"JFK","date":"2027-05-01","threshold":250}
 DELETE /v1/alerts?id=<id>
+POST   /v1/auth/signup   {"email":"you@example.com","password":"correct-horse"}   # sets session cookie
+POST   /v1/auth/login    {"email":"you@example.com","password":"correct-horse"}
+POST   /v1/auth/logout
+GET    /v1/me                                    # the signed-in member (tier, benefits, loyalty)
 GET /v1/airport/info?code=LAX
 GET /v1/flights/live?icao24=4b1814
 ```

@@ -3,6 +3,9 @@ import { getTier } from '../accounts/membership.js';
 const SUPPORTED = new Set(['flights', 'hotels', 'cars']);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_FEE_RATE = 0.02; // 2% booking service fee, waived for the top tier.
+// Cancellation is as easy as booking (FTC click-to-cancel expectation), stated
+// upfront on every order.
+const CANCELLATION_POLICY = 'Cancel anytime from your trips. Any refund follows the provider policy and is shown when you cancel.';
 
 // Orchestrates booking over an OrderStore and a set of aggregator adapters
 // (Duffel for flights, a bedbank for hotels). The adapter is the merchant of
@@ -64,6 +67,7 @@ export class BookingService {
       total: round2(numberOr(offer.price.total, 0) + serviceFee),
       providerRef: booking.providerRef, confirmation: booking.confirmation,
       bookedPrice: booking.bookedPrice || null, live: booking.live ?? adapter.live,
+      cancellationPolicy: CANCELLATION_POLICY,
       lastError: null,
       history: [{ at: this.now(), status, note: 'Booked' }]
     });
@@ -162,6 +166,7 @@ export function publicOrder(order) {
     total: order.total,
     bookedPrice: order.bookedPrice ?? null,
     loyaltyEarned: order.loyaltyEarned ?? 0,
+    cancellationPolicy: order.cancellationPolicy ?? null,
     refund: order.refund ?? null,
     live: order.live,
     lastError: order.lastError ?? null,

@@ -170,7 +170,7 @@ test('/v1/trust is public, cacheable, and lists the published commitments', asyn
     assert.equal(res.status, 200);
     assert.equal(res.headers.get('cache-control'), 'public, max-age=300');
     const ids = body.data.commitments.map((c) => c.id);
-    assert.deepEqual(ids, ['all-in-pricing', 'no-fake-urgency', 'no-paid-ranking', 'freshness-disclosure', 'honest-failures', 'price-context']);
+    assert.deepEqual(ids, ['all-in-pricing', 'no-fake-urgency', 'no-paid-ranking', 'freshness-disclosure', 'honest-failures', 'price-context', 'honest-booking-totals', 'easy-cancellation', 'transparent-membership', 'assistive-ai-only', 'data-protection']);
     assert.ok(body.data.commitments.every((c) => c.promise && c.mechanism));
   });
 });

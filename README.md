@@ -31,8 +31,12 @@ Hopper's $35M settlement, Fareportal's fabricated scarcity counters). This engin
 commitments and enforces each one in the API contract:
 
 - **`GET /v1/trust`** returns the machine-readable manifest: all-in pricing, no fake urgency, no
-  paid ranking, freshness disclosure, honest failures, and price context (each with the mechanism
-  that enforces it).
+  paid ranking, freshness disclosure, honest failures, price context, honest booking totals, easy
+  cancellation, transparent membership, assistive-AI-only, and data protection (each with the
+  mechanism that enforces it).
+- **[docs/compliance.md](docs/compliance.md)** maps the design to the documented failure patterns
+  (FTC junk-fee rule, dark-patterns enforcement, click-to-cancel, membership-club red flags, PCI and
+  Seller-of-Travel scope).
 - **`ranking: { basis, paidPlacement: false }`** is published on every search response.
 - **Price memory**: every search records the cheapest *real* price (demo data is never recorded).
   Once 3+ samples exist, responses carry `priceContext` ("current $289 is 12% below the 30-day

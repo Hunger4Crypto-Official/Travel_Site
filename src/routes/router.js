@@ -408,6 +408,31 @@ function trustManifest(brand) {
         id: 'price-context',
         promise: 'When we have enough history, we tell you how today’s price compares to the recent average.',
         mechanism: 'priceContext appears once at least 3 samples exist for a search; demo prices are never recorded.'
+      },
+      {
+        id: 'honest-booking-totals',
+        promise: 'Before you confirm a booking, we show the trip total and any service fee separately. No fee is ever hidden or pre-selected.',
+        mechanism: 'order.serviceFee and order.total are disclosed on the checkout sheet and the created order; the top membership tier pays a zero fee.'
+      },
+      {
+        id: 'easy-cancellation',
+        promise: 'Cancelling a booking is as easy as making one, and any refund is shown to you.',
+        mechanism: 'DELETE /v1/orders/<id> from the Trips tab; order.cancellationPolicy is stated upfront and the refund is returned on cancel.'
+      },
+      {
+        id: 'transparent-membership',
+        promise: 'Membership benefits are concrete and disclosed, and you can cancel anytime.',
+        mechanism: 'Tier benefits (waived fees, loyalty multipliers, member rates) are published; POST /v1/billing/cancel downgrades immediately.'
+      },
+      {
+        id: 'assistive-ai-only',
+        promise: 'Any AI helper only suggests search fields for you to review. It never sets prices, ranks results, or books.',
+        mechanism: 'The assistant output passes a strict whitelist sanitizer; the deterministic engine and validators remain authoritative.'
+      },
+      {
+        id: 'data-protection',
+        promise: 'Passwords are hashed and never stored in the clear, and we do not sell your data.',
+        mechanism: 'scrypt with a per-user salt via node:crypto; card data is handled by the payment provider, never by us.'
       }
     ]
   };

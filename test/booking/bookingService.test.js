@@ -45,6 +45,7 @@ test('createOrder books, adds a tier-aware service fee, and returns the order', 
   assert.equal(order.contact.email, 'ada@example.com');
   assert.equal(order.passengers[0].familyName, 'Lovelace');
   assert.equal(order.history.at(-1).status, 'confirmed');
+  assert.match(order.cancellationPolicy, /Cancel anytime/);
 });
 
 test('a wired loyalty service earns points for members and is skipped for non-members', async () => {

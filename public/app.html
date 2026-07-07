@@ -255,6 +255,7 @@ function openBooking(offer){
   fees.appendChild(el('<div class="kv"><span>Service fee'+(state.me.tier==='gold'?' <span class="save">waived</span>':'')+'</span><span>'+cur+' '+fee+'</span></div>'));
   fees.appendChild(el('<div class="kv total"><span>Total</span><span>'+cur+' '+total+'</span></div>'));
   sheet.appendChild(fees);
+  sheet.appendChild(el('<div class="sub" style="margin:10px 2px 0;font-size:11px">Cancel anytime from your trips. Any refund follows the provider policy and is shown when you cancel.</div>'));
   const confirm=el('<button class="btn alt" style="margin-top:14px">Confirm and book</button>');
   confirm.onclick=async()=>{ confirm.disabled=true; confirm.textContent='Booking...';
     try{

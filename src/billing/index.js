@@ -17,6 +17,7 @@ export function createBillingService(config, accountStore, { fetchJson = default
     store: accountStore,
     gateway,
     priceIds: { silver: config.stripePriceSilver, gold: config.stripePriceGold },
-    webhookSecret: config.stripeWebhookSecret
+    webhookSecret: config.stripeWebhookSecret,
+    requireLiveGateway: config.nodeEnv === 'production'
   });
 }

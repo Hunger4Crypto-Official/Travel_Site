@@ -62,6 +62,7 @@ export class AccountStore {
       tier,
       role,
       loyaltyPoints: 0,
+      tokenGeneration: 0,
       createdAt: timestamp,
       updatedAt: timestamp
     };

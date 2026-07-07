@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { once } from 'node:events';
 import { brand } from '../src/config/brand.js';
-import { handleRequest, clientIp, wantsHtml } from '../src/routes/router.js';
+import { handleRequest, clientIp, wantsHtml, originAllowed } from '../src/routes/router.js';
 
 const logger = { info() {}, warn() {}, error() {}, debug() {} };
 
@@ -441,6 +441,35 @@ test('search offers are signed with a lock when an offer secret is configured', 
     assert.equal(typeof body.data.offers[0].lock.sig, 'string');
     assert.equal(typeof body.data.offers[0].lock.exp, 'number');
   } finally { server.close(); await once(server, 'close'); }
+});
+
+test('originAllowed permits same-origin, allow-listed, and header-less requests', () => {
+  const cfg = { allowedOrigins: ['https://good.example'] };
+  const mk = (origin) => ({ headers: { origin, host: 'h' } });
+  assert.equal(originAllowed({ headers: { host: 'h' } }, cfg), true); // no Origin header
+  assert.equal(originAllowed(mk('https://good.example'), cfg), true); // allow-listed
+  assert.equal(originAllowed(mk('http://h'), cfg), true); // same-origin (host matches)
+  assert.equal(originAllowed(mk('https://evil.example'), cfg), false); // cross-origin
+  assert.equal(originAllowed(mk(':::://bad'), cfg), false); // malformed Origin -> catch
+  assert.equal(originAllowed(mk('https://anything'), { allowedOrigins: ['*'] }), true); // wildcard
+  assert.equal(originAllowed(mk('https://x'), {}), false); // no allowedOrigins, not same-origin
+});
+
+test('a cross-origin mutating request carrying a session cookie is blocked (CSRF guard)', async () => {
+  const cfg = { allowedOrigins: ['https://good.example'], requireApiKey: false, apiKeys: [] };
+  await withServer(cfg, fakeEngine(), async (base) => {
+    const u = new URL(base);
+    const post = (headers) => new Promise((resolve, reject) => {
+      const req = httpRequest({ hostname: u.hostname, port: u.port, path: '/v1/alerts', method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (res) => { res.resume(); resolve(res.statusCode); });
+      req.on('error', reject); req.end('{"type":"flights"}');
+    });
+    // Session cookie + cross-origin -> 403.
+    assert.equal(await post({ cookie: 'tc_session=x', origin: 'https://evil.example' }), 403);
+    // Session cookie + allow-listed origin -> passes the CSRF guard.
+    assert.notEqual(await post({ cookie: 'tc_session=x', origin: 'https://good.example' }), 403);
+    // No session cookie -> guard does not apply, even cross-origin.
+    assert.notEqual(await post({ origin: 'https://evil.example' }), 403);
+  });
 });
 
 test('the app page CSP allows the manifest and the service worker', async () => {

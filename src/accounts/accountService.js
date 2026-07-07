@@ -6,8 +6,9 @@ import { getTier, hasMemberRates, benefitsFor, defaultTierId } from './membershi
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // A fixed decoy hash so login runs the same scrypt work whether or not the
-// email exists, closing the timing oracle that would otherwise enumerate accounts.
-const DECOY_HASH = hashPassword('decoy-account-benchmark-value');
+// email exists, closing the timing oracle that would otherwise enumerate
+// accounts. Computed once at module load (top-level await).
+const DECOY_HASH = await hashPassword('decoy-account-benchmark-value');
 
 // Orchestrates the account lifecycle over an AccountStore and a session manager.
 // Public results never carry the password hash: publicUser() is the only shape
@@ -18,34 +19,42 @@ export class AccountService {
     this.sessions = sessions;
   }
 
-  signup(input = {}) {
+  async signup(input = {}) {
     const email = normalizeEmail(input.email);
-    const passwordHash = hashPassword(input.password);
+    const passwordHash = await hashPassword(input.password);
     const user = this.store.create({ email, passwordHash, tier: defaultTierId(), role: 'member' });
-    return { user: publicUser(user), token: this.sessions.issue(user.id) };
+    return { user: publicUser(user), token: this.sessions.issue(user.id, user.tokenGeneration) };
   }
 
-  login(input = {}) {
+  async login(input = {}) {
     const email = normalizeEmail(input.email);
     const user = this.store.findByEmail(email);
     // Always verify against a real hash (the decoy when the user is absent) so
     // both branches do equal scrypt work and cannot be timed apart.
-    const passwordOk = verifyPassword(input.password ?? '', user ? user.passwordHash : DECOY_HASH);
+    const passwordOk = await verifyPassword(input.password ?? '', user ? user.passwordHash : DECOY_HASH);
     if (!user || !passwordOk) {
       throw unauthorized('Invalid email or password');
     }
-    return { user: publicUser(user), token: this.sessions.issue(user.id) };
+    return { user: publicUser(user), token: this.sessions.issue(user.id, user.tokenGeneration) };
   }
 
   // Resolve a raw session token to the full internal user record (carries the
   // password hash), for the router to attach identity. Returns null when the
-  // token is missing, invalid, expired, or the user no longer exists.
+  // token is missing, invalid, expired, the user no longer exists, or the
+  // token's generation is stale (logged out / password changed).
   identify(token) {
     const session = this.sessions.verify(token);
     if (!session) return null;
     const user = this.store.get(session.userId);
     if (!user) return null;
+    if ((user.tokenGeneration ?? 0) !== session.gen) return null;
     return { user, session };
+  }
+
+  // Invalidate every existing session for a user (logout / password change) by
+  // bumping their token generation.
+  logout(user) {
+    return this.store.update(user.id, { tokenGeneration: (user.tokenGeneration ?? 0) + 1 });
   }
 
   me(user) {

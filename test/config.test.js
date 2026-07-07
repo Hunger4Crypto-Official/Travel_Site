@@ -91,7 +91,10 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
     LOYALTY_MAX_ENTRIES: '3',
     ASSISTANT_ENABLED: 'true',
     OLLAMA_URL: 'http://ollama:11434',
-    OLLAMA_MODEL: 'mistral'
+    OLLAMA_MODEL: 'mistral',
+    OFFER_SIGNING_SECRET: 'osec',
+    AUTH_RATE_LIMIT_CAPACITY: '7',
+    WRITE_RATE_LIMIT_CAPACITY: '42'
   });
 
   assert.equal(config.nodeEnv, 'production');
@@ -146,6 +149,9 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
   assert.equal(config.assistantEnabled, true);
   assert.equal(config.ollamaUrl, 'http://ollama:11434');
   assert.equal(config.ollamaModel, 'mistral');
+  assert.equal(config.offerSigningSecret, 'osec');
+  assert.equal(config.authRateLimitCapacity, 7);
+  assert.equal(config.writeRateLimitCapacity, 42);
 });
 
 test('loadConfig auth flag: explicit REQUIRE_API_KEY and production-without-keys', () => {

@@ -6,17 +6,25 @@ import { publicUser } from '../accounts/accountService.js';
 // webhook) downgrades them to free. The gateway is the merchant of record for
 // the recurring charge; this service owns the member-tier side effects.
 export class BillingService {
-  constructor({ store, gateway, priceIds = {}, webhookSecret = null } = {}) {
+  constructor({ store, gateway, priceIds = {}, webhookSecret = null, requireLiveGateway = false } = {}) {
     this.store = store;
     this.gateway = gateway;
     this.priceIds = priceIds;
     this.webhookSecret = webhookSecret;
+    // In production, never grant a paid tier through the sandbox gateway (a
+    // partially configured deployment must not hand out free memberships).
+    this.requireLiveGateway = requireLiveGateway;
   }
 
   async subscribe(user, tierId) {
     const tier = getTier(tierId);
     if (!tier || tier.id === 'free') {
       throw badRequest('Choose a paid membership tier (silver or gold)');
+    }
+    if (this.requireLiveGateway && !this.gateway.live) {
+      const err = new Error('Billing is not fully configured on this deployment');
+      err.statusCode = 503;
+      throw err;
     }
     let customerId = user.stripeCustomerId;
     if (!customerId) {

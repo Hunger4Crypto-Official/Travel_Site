@@ -22,11 +22,18 @@ test('issue rejects an empty userId with a 400', () => {
   assert.throws(() => mgr.issue(''), (err) => err.statusCode === 400);
 });
 
-test('round-trip issue then verify returns the userId and exp', () => {
+test('round-trip issue then verify returns the userId, generation, and exp', () => {
   const mgr = createSessionManager({ secret: SECRET, ttlMs: 1000, now: () => 5000 });
-  const token = mgr.issue('user-1');
-  const claims = mgr.verify(token);
-  assert.deepEqual(claims, { userId: 'user-1', exp: 6000 });
+  assert.deepEqual(mgr.verify(mgr.issue('user-1')), { userId: 'user-1', gen: 0, exp: 6000 });
+  // An explicit generation round-trips.
+  assert.deepEqual(mgr.verify(mgr.issue('user-1', 3)), { userId: 'user-1', gen: 3, exp: 6000 });
+});
+
+test('verify defaults a missing generation to 0', () => {
+  const mgr = createSessionManager({ secret: SECRET, now: () => 1000 });
+  const payloadB64 = Buffer.from(JSON.stringify({ uid: 'user-1', exp: 9e15 }), 'utf8').toString('base64url');
+  const claims = mgr.verify(`${payloadB64}.${createSig(payloadB64)}`);
+  assert.equal(claims.gen, 0);
 });
 
 test('verify returns null for a tampered payload', () => {

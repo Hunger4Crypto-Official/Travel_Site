@@ -93,6 +93,22 @@ set of real issues before any keys were deployed:
   parser canonicalizes numeric host encodings before the guard inspects them, so `isBlockedIpv4`
   already catches them. A regression test locks this in.
 
+A follow-up pass then closed the remaining residuals:
+
+- **Session revocation.** Sessions carry a per-user generation; logout (and, in future, a password
+  change) bumps it, invalidating every previously issued token, not just the current cookie.
+- **Non-blocking password hashing.** `scrypt` now runs asynchronously on the libuv thread pool, so a
+  burst of signups/logins cannot pin the event loop (rate limiting is the first line; this is the
+  second).
+- **CSRF defense-in-depth.** A cross-origin mutating request that carries a session cookie is
+  rejected (Origin allow-list / same-origin check), on top of the `SameSite=Lax` cookie.
+- **Sandbox tier lockout.** In production the sandbox payment gateway can no longer grant a paid
+  tier; a partially configured deployment refuses to hand out free memberships (`503`).
+
+The single item that still needs external infrastructure is **email-verification-based
+non-enumeration** (signup currently reveals whether an email is registered); it is mitigated by rate
+limiting and requires an email provider to fully close.
+
 ## 8. Honest failures
 
 When a data source fails we say so (`providers[].status` with a coarse error category and an

@@ -116,6 +116,13 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   // Rate-limit key: the signed-in user when present, else the client IP.
   const rlKey = identity ? `user:${identity.user.id}` : clientIp(req);
 
+  // CSRF defense-in-depth: reject a cross-origin mutating request that carries a
+  // session cookie. SameSite=Lax already blocks this in browsers; this is a
+  // second gate. Requests with no Origin header (API clients) are unaffected.
+  if ((req.method === 'POST' || req.method === 'DELETE') && readCookie(req, SESSION_COOKIE) && !originAllowed(req, config)) {
+    return fail(403, 'Cross-origin request blocked');
+  }
+
   logger?.info('Request started', { requestId: context.requestId, method: req.method, path: pathname });
 
   // Discovery: browsers get the web app at the root, API clients get the JSON
@@ -177,11 +184,13 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
         return ok(200, accountService.me(identity.user), { principal: `user:${identity.user.id}` });
       }
       if (pathname === '/v1/auth/logout') {
+        // Invalidate every existing token for this user, not just this cookie.
+        if (identity) accountService.logout(identity.user);
         res.setHeader('Set-Cookie', clearCookie(config));
         return ok(200, { signedOut: true });
       }
       const body = await readJsonBody(req);
-      const result = pathname === '/v1/auth/signup' ? accountService.signup(body) : accountService.login(body);
+      const result = pathname === '/v1/auth/signup' ? await accountService.signup(body) : await accountService.login(body);
       res.setHeader('Set-Cookie', sessionCookie(result.token, config));
       return ok(pathname === '/v1/auth/signup' ? 201 : 200, { user: result.user }, { principal: `user:${result.user.id}` });
     } catch (err) {
@@ -473,6 +482,21 @@ function trustManifest(brand) {
 
 export function wantsHtml(req) {
   return String(req.headers.accept || '').includes('text/html');
+}
+
+// True when a cookie-authenticated mutating request is same-origin or from an
+// allowed origin. No Origin header (non-browser clients) is treated as allowed;
+// SameSite=Lax is the primary browser defense.
+export function originAllowed(req, config) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  const allowed = config.allowedOrigins || [];
+  if (allowed.includes('*') || allowed.includes(origin)) return true;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
 }
 
 export function readCookie(req, name) {

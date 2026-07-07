@@ -1,17 +1,21 @@
-import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { scrypt, randomBytes, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
 
 // Self-describing scrypt password hashing with zero dependencies.
 // Format: scrypt$<N>$<r>$<p>$<saltBase64url>$<hashBase64url>
+// Hashing is async (scrypt runs on the libuv thread pool) so a burst of signups
+// or logins never blocks the event loop.
 const PREFIX = 'scrypt';
 const N = 16384;
 const R = 8;
 const P = 1;
 const KEYLEN = 64;
 const MIN_LENGTH = 8;
+const scryptAsync = promisify(scrypt);
 
 // Derive a KEYLEN-byte key from a password and salt using the fixed params.
 function derive(plain, salt) {
-  return scryptSync(plain, salt, KEYLEN, { N, r: R, p: P });
+  return scryptAsync(plain, salt, KEYLEN, { N, r: R, p: P });
 }
 
 // Strict base64url decode. Buffer.from silently drops invalid characters, so
@@ -25,7 +29,7 @@ function decodeBase64url(value) {
 
 // Hash a plaintext password. Throws a 400-style error for client-fixable
 // input problems (wrong type, empty, or too short).
-export function hashPassword(plain) {
+export async function hashPassword(plain) {
   if (typeof plain !== 'string') {
     throw badRequest('password must be a string');
   }
@@ -36,7 +40,7 @@ export function hashPassword(plain) {
     throw badRequest(`password must be at least ${MIN_LENGTH} characters`);
   }
   const salt = randomBytes(16);
-  const hash = derive(plain, salt);
+  const hash = await derive(plain, salt);
   return [
     PREFIX,
     N,
@@ -49,7 +53,7 @@ export function hashPassword(plain) {
 
 // Verify a plaintext password against a stored hash string. Never throws:
 // any malformed input or mismatch returns false; only an exact match is true.
-export function verifyPassword(plain, stored) {
+export async function verifyPassword(plain, stored) {
   if (typeof plain !== 'string' || typeof stored !== 'string') return false;
   const parts = stored.split('$');
   if (parts.length !== 6) return false;
@@ -63,7 +67,7 @@ export function verifyPassword(plain, stored) {
     return false;
   }
   if (expected.length !== KEYLEN) return false;
-  const actual = derive(plain, salt);
+  const actual = await derive(plain, salt);
   return timingSafeEqual(actual, expected);
 }
 

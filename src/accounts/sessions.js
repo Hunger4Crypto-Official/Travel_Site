@@ -11,11 +11,13 @@ export function createSessionManager({ secret, ttlMs = DEFAULT_TTL_MS, now = () 
     throw new Error('secret must be a non-empty string');
   }
 
-  function issue(userId) {
+  function issue(userId, gen = 0) {
     if (typeof userId !== 'string' || userId.length === 0) {
       throw badRequest('userId must be a non-empty string');
     }
-    const payloadB64 = base64url(JSON.stringify({ uid: userId, exp: now() + ttlMs }));
+    // gen (token generation) is bound into the payload so logout or a password
+    // change can invalidate every prior token by bumping the user's generation.
+    const payloadB64 = base64url(JSON.stringify({ uid: userId, gen, exp: now() + ttlMs }));
     const sigB64 = sign(payloadB64);
     return `${payloadB64}.${sigB64}`;
   }
@@ -43,7 +45,8 @@ export function createSessionManager({ secret, ttlMs = DEFAULT_TTL_MS, now = () 
       return null;
     }
     if (payload.exp <= now()) return null;
-    return { userId: payload.uid, exp: payload.exp };
+    const gen = typeof payload.gen === 'number' ? payload.gen : 0;
+    return { userId: payload.uid, gen, exp: payload.exp };
   }
 
   function sign(payloadB64) {

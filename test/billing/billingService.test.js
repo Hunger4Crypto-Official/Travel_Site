@@ -17,12 +17,12 @@ function fakeGateway(over = {}) {
   };
 }
 
-function makeBilling(over = {}, webhookSecret = null) {
+function makeBilling(over = {}, webhookSecret = null, requireLiveGateway = false) {
   let n = 0;
   const store = new AccountStore({ idFactory: () => `u${++n}` });
   const user = store.create({ email: 'm@example.com', passwordHash: 'h' });
   const gateway = fakeGateway(over);
-  const service = new BillingService({ store, gateway, priceIds: { silver: 'price_s', gold: 'price_g' }, webhookSecret });
+  const service = new BillingService({ store, gateway, priceIds: { silver: 'price_s', gold: 'price_g' }, webhookSecret, requireLiveGateway });
   return { store, user, gateway, service };
 }
 
@@ -50,6 +50,18 @@ test('subscribe to a paid tier creates a customer + subscription and upgrades th
   await service.subscribe(fresh, 'silver');
   assert.equal(gateway.calls.createCustomer, 1, 'the customer is created once');
   assert.equal(store.get(user.id).tier, 'silver');
+});
+
+test('a live-gateway requirement blocks sandbox tier grants but allows a live gateway', async () => {
+  // requireLiveGateway + sandbox gateway -> refuse (partially configured prod).
+  const sandbox = makeBilling({ live: false }, null, true);
+  await assert.rejects(() => sandbox.service.subscribe(sandbox.user, 'gold'), (e) => e.statusCode === 503);
+  assert.equal(sandbox.store.get(sandbox.user.id).tier, 'free');
+
+  // requireLiveGateway + live gateway -> proceeds.
+  const live = makeBilling({ live: true }, null, true);
+  const result = await live.service.subscribe(live.user, 'gold');
+  assert.equal(result.member.tier, 'gold');
 });
 
 test('cancel requires an active subscription, then downgrades to free', async () => {

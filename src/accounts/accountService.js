@@ -72,6 +72,8 @@ export function publicUser(user) {
     memberRates: hasMemberRates(tier.id),
     benefits: benefitsFor(tier.id),
     loyaltyPoints: user.loyaltyPoints ?? 0,
+    subscriptionStatus: user.subscriptionStatus ?? null,
+    subscriptionTier: user.subscriptionTier ?? null,
     createdAt: user.createdAt
   };
 }

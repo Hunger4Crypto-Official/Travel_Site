@@ -101,4 +101,6 @@ test('publicUser falls back to the default tier and default loyalty when unknown
   const shaped = publicUser({ id: 'z', email: 'z@x.com', role: 'member', tier: 'bogus', createdAt: 1 });
   assert.equal(shaped.tier, 'free', 'unknown tier falls back to the default');
   assert.equal(shaped.loyaltyPoints, 0, 'missing loyaltyPoints defaults to 0');
+  assert.equal(shaped.subscriptionStatus, null, 'no subscription defaults to null');
+  assert.equal(shaped.subscriptionTier, null);
 });

@@ -1,6 +1,6 @@
 import { success, error } from '../utils/formatter.js';
 import { authenticate, createRequestContext, responseHeaders } from '../utils/http.js';
-import { readJsonBody } from '../utils/requestBody.js';
+import { readJsonBody, readRawBody } from '../utils/requestBody.js';
 
 const SOURCE = 'the-travel-club';
 const SESSION_COOKIE = 'tc_session';
@@ -12,7 +12,10 @@ const methodAllows = new Map([
   ['/v1/orders', 'GET, POST, OPTIONS'],
   ['/v1/auth/signup', 'POST, OPTIONS'],
   ['/v1/auth/login', 'POST, OPTIONS'],
-  ['/v1/auth/logout', 'POST, OPTIONS']
+  ['/v1/auth/logout', 'POST, OPTIONS'],
+  ['/v1/billing/subscribe', 'POST, OPTIONS'],
+  ['/v1/billing/cancel', 'POST, OPTIONS'],
+  ['/v1/billing/webhook', 'POST, OPTIONS']
 ]);
 
 // The method set a path advertises. Order-item paths (/v1/orders/<id>) are
@@ -24,6 +27,7 @@ function allowedMethods(pathname) {
 }
 
 const authPaths = new Set(['/v1/auth/signup', '/v1/auth/login', '/v1/auth/logout', '/v1/me']);
+const billingPaths = new Set(['/v1/billing', '/v1/billing/subscribe', '/v1/billing/cancel', '/v1/billing/webhook']);
 
 const routeMap = new Map([
   ['/flights/search', 'flights'],
@@ -40,7 +44,7 @@ const routeMap = new Map([
 
 // Versioned routes advertised in discovery responses (the unversioned aliases
 // stay available but are not promoted).
-const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/trust', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
+const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/billing', '/v1/trust', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
@@ -49,7 +53,7 @@ const protectedPaths = new Set(['/ready', '/metrics']);
 // fetch, while still forbidding framing, external sources, and form exfiltration.
 const PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
-export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, accountService = null, bookingService = null }) {
+export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, accountService = null, bookingService = null, billingService = null }) {
   const context = createRequestContext(req);
   setHeaders(res, responseHeaders({ requestId: context.requestId, origin: req.headers.origin, allowedOrigins: config.allowedOrigins }));
 
@@ -148,6 +152,33 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
       const statusCode = err.statusCode || 500;
       const message = statusCode >= 500 ? 'Unexpected error' : err.message;
       if (statusCode >= 500) logger?.warn('Auth request failed', { requestId: context.requestId, error: err.message });
+      return fail(statusCode, message);
+    }
+  }
+
+  // Membership billing. The webhook is public (signature-verified); managing a
+  // subscription requires a signed-in member.
+  if (billingPaths.has(pathname)) {
+    if (!billingService) return fail(404, 'Billing is not enabled on this deployment', { path: pathname });
+    try {
+      if (pathname === '/v1/billing/webhook') {
+        const raw = await readRawBody(req);
+        return ok(200, billingService.handleWebhook(raw, req.headers['stripe-signature']));
+      }
+      if (!identity) return fail(401, 'Sign in to manage your membership');
+      const userPrincipal = `user:${identity.user.id}`;
+      if (pathname === '/v1/billing') {
+        return ok(200, billingService.status(identity.user), { principal: userPrincipal });
+      }
+      if (pathname === '/v1/billing/subscribe') {
+        const body = await readJsonBody(req);
+        return ok(200, await billingService.subscribe(identity.user, body.tier), { principal: userPrincipal });
+      }
+      return ok(200, await billingService.cancel(identity.user), { principal: userPrincipal });
+    } catch (err) {
+      const statusCode = err.statusCode || 500;
+      const message = statusCode >= 500 ? 'Unexpected error' : err.message;
+      if (statusCode >= 500) logger?.warn('Billing request failed', { requestId: context.requestId, error: err.message });
       return fail(statusCode, message);
     }
   }
@@ -274,6 +305,7 @@ function serviceIndex(brand, now = Date.now()) {
       priceHistory: '/v1/prices/history?type=flights&from=LAX&to=JFK',
       alerts: '/v1/alerts',
       orders: '/v1/orders',
+      billing: '/v1/billing',
       airport: '/v1/airport/info?code=LAX',
       tracking: '/v1/flights/live?icao24=4b1814'
     }

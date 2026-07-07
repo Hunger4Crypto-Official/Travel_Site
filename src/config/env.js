@@ -89,7 +89,15 @@ export function loadConfig(env = process.env) {
     ordersFile: env.ORDERS_FILE || null,
     ordersMaxEntries: values.ORDERS_MAX_ENTRIES,
     duffelToken: env.DUFFEL_TOKEN || null,
-    duffelEnv: env.DUFFEL_ENV === 'production' ? 'production' : 'test'
+    duffelEnv: env.DUFFEL_ENV === 'production' ? 'production' : 'test',
+
+    // Membership billing (/v1/billing): Stripe is the merchant of record for
+    // the recurring subscription charge.
+    billingEnabled: env.BILLING_ENABLED !== 'false',
+    stripeSecretKey: env.STRIPE_SECRET_KEY || null,
+    stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET || null,
+    stripePriceSilver: env.STRIPE_PRICE_SILVER || null,
+    stripePriceGold: env.STRIPE_PRICE_GOLD || null
   };
 }
 

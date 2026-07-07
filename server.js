@@ -20,6 +20,7 @@ import { AccountStore } from './src/accounts/accountStore.js';
 import { AccountService } from './src/accounts/accountService.js';
 import { createSessionManager } from './src/accounts/sessions.js';
 import { createBookingService } from './src/booking/index.js';
+import { createBillingService } from './src/billing/index.js';
 
 loadDotEnv({ path: new URL('./.env', import.meta.url).pathname });
 const config = loadConfig();
@@ -36,15 +37,20 @@ const alertStore = config.alertsEnabled
 const notifier = createNotifier({ enabled: config.alertsWebhooksEnabled, logger });
 
 let accountService = null;
+let accountStore = null;
 if (config.accountsEnabled) {
   const sessionSecret = config.sessionSecret || randomBytes(32).toString('hex');
   if (!config.sessionSecret) {
     logger.warn('SESSION_SECRET is not set; using an ephemeral secret (sessions reset on restart)');
   }
-  const accountStore = new AccountStore({ filePath: config.accountsFile, maxEntries: config.accountsMaxEntries });
+  accountStore = new AccountStore({ filePath: config.accountsFile, maxEntries: config.accountsMaxEntries });
   const sessions = createSessionManager({ secret: sessionSecret, ttlMs: config.sessionTtlMs });
   accountService = new AccountService({ store: accountStore, sessions });
 }
+
+// Membership billing shares the account store so a subscription change updates
+// the member's tier directly.
+const billingService = createBillingService(config, accountStore);
 
 const engine = new TravelEngine({
   providers: createProviders(config),
@@ -69,7 +75,7 @@ const pages = {
 
 const bookingService = createBookingService(config);
 
-const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, accountService, bookingService }));
+const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, accountService, bookingService, billingService }));
 
 server.listen(config.port, () => {
   logger.info('Server started', { service: brand.name, acronym: brand.acronym, port: config.port, nodeEnv: config.nodeEnv });

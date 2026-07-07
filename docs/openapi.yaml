@@ -384,6 +384,50 @@ paths:
       responses:
         '200': { description: The cancelled order, with any refund. }
         '404': { description: Order not found (or not owned by the caller). }
+  /v1/billing:
+    get:
+      security: []
+      summary: The signed-in member's subscription status and gateway mode. Requires a session.
+      responses:
+        '200': { description: Current tier, subscription status, tier, period end, and whether the gateway is live. }
+        '401': { description: Not signed in. }
+        '404': { description: Billing is not enabled on this deployment. }
+  /v1/billing/subscribe:
+    post:
+      security: []
+      summary: Subscribe the signed-in member to a paid tier (upgrades their membership).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tier]
+              properties:
+                tier: { type: string, enum: [silver, gold] }
+      responses:
+        '200': { description: The upgraded member and the subscription summary. }
+        '400': { description: Not a paid tier. }
+        '401': { description: Not signed in. }
+        '404': { description: Billing is not enabled. }
+  /v1/billing/cancel:
+    post:
+      security: []
+      summary: Cancel the signed-in member's subscription (downgrades to free).
+      responses:
+        '200': { description: The downgraded member and the cancelled subscription. }
+        '400': { description: No active subscription. }
+        '401': { description: Not signed in. }
+        '404': { description: Billing is not enabled. }
+  /v1/billing/webhook:
+    post:
+      security: []
+      summary: Gateway webhook endpoint. Signature-verified when a webhook secret is configured.
+      responses:
+        '200': { description: The event was processed (applied or ignored). }
+        '400': { description: Malformed webhook payload. }
+        '401': { description: Invalid webhook signature. }
+        '404': { description: Billing is not enabled. }
   /v1/airport/info:
     get:
       summary: Look up airport information.

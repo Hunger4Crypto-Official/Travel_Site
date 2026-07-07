@@ -92,6 +92,23 @@ or ticketing liability directly. Orders are owner-scoped: `GET /v1/orders` lists
   full flow, including confirmations and cancellations, is exercisable end to end without live keys.
   Set `BOOKING_ENABLED=false` to disable `/v1/orders` entirely.
 
+## Membership billing
+
+Paid tiers are the recurring half of the hybrid model. `POST /v1/billing/subscribe` puts the
+signed-in member on a paid tier (Voyager or Globetrotter) through Stripe, which is the merchant of
+record for the subscription; `POST /v1/billing/cancel` downgrades them; `GET /v1/billing` reports
+status. A signed subscription upgrade takes effect immediately across the product: member rates
+unlock, loyalty multipliers rise, and the Globetrotter (gold) tier stops paying booking service
+fees.
+
+- **Gateway webhooks:** `POST /v1/billing/webhook` receives Stripe events. When `STRIPE_WEBHOOK_SECRET`
+  is set the signature is verified (HMAC-SHA256 over the raw body with a timestamp tolerance) before
+  anything is applied; a cancellation event downgrades the member to free.
+- **Sandbox by default:** with no `STRIPE_SECRET_KEY` the gateway runs a deterministic simulation, so
+  subscribe, cancel, and webhooks all work end to end without live keys. Set `STRIPE_SECRET_KEY`,
+  `STRIPE_WEBHOOK_SECRET`, and the per-tier price ids (`STRIPE_PRICE_SILVER`, `STRIPE_PRICE_GOLD`) to
+  go live. `BILLING_ENABLED=false` disables `/v1/billing` entirely.
+
 ## Lowest-price comparison
 
 For each vertical the engine fans out to every connected provider in parallel, then makes the
@@ -168,6 +185,10 @@ GET    /v1/orders                                # list your booking orders
 POST   /v1/orders   {"type":"flights","offer":{...},"passengers":[{"givenName":"Ada","familyName":"Lovelace"}],"contact":{"email":"you@example.com"}}
 GET    /v1/orders/<id>                           # fetch one order
 DELETE /v1/orders/<id>                           # cancel one order
+GET    /v1/billing                               # your subscription status
+POST   /v1/billing/subscribe   {"tier":"gold"}   # upgrade to a paid tier
+POST   /v1/billing/cancel                        # cancel and downgrade to free
+POST   /v1/billing/webhook                       # gateway events (signature-verified)
 GET /v1/airport/info?code=LAX
 GET /v1/flights/live?icao24=4b1814
 ```

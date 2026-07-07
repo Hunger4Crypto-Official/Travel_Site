@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { readJsonBody } from '../src/utils/requestBody.js';
+import { readJsonBody, readRawBody } from '../src/utils/requestBody.js';
 
 // A minimal request stand-in whose data/end/error we drive by hand, so every
 // branch is deterministic.
@@ -51,4 +51,12 @@ test('readJsonBody rejects on a stream error', async () => {
   const promise = readJsonBody(req);
   req.emit('error', new Error('socket reset'));
   await assert.rejects(promise, (err) => err.statusCode === 400 && /read request body/.test(err.message));
+});
+
+test('readRawBody preserves the exact bytes, including surrounding whitespace', async () => {
+  const req = fakeReq();
+  const promise = readRawBody(req);
+  req.emit('data', Buffer.from('  {"a":1}\n'));
+  req.emit('end');
+  assert.equal(await promise, '  {"a":1}\n', 'the raw body is not trimmed (webhook signatures need it exact)');
 });

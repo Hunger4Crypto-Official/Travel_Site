@@ -41,6 +41,17 @@ test('loadConfig applies safe defaults with an empty environment', () => {
   assert.equal(config.alertsMaxEntries, 1000);
   assert.equal(config.alertsCheckIntervalMs, 300000);
   assert.equal(config.alertsWebhooksEnabled, false);
+
+  // Production-hardening defaults.
+  assert.equal(config.offerSigningSecret, null);
+  assert.equal(config.authRateLimitCapacity, 10);
+  assert.equal(config.writeRateLimitCapacity, 60);
+  assert.equal(config.trustProxyHops, 0);
+  assert.equal(config.alertsSweepLeader, true);
+  assert.equal(config.databaseUrl, null);
+  assert.equal(config.auditLogFile, null);
+  assert.equal(config.auditLogMaxEntries, 5000);
+  assert.equal(config.holidaysEnabled, true);
 });
 
 test('loadConfig honors every override and the shared RapidAPI fallback', () => {
@@ -94,7 +105,13 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
     OLLAMA_MODEL: 'mistral',
     OFFER_SIGNING_SECRET: 'osec',
     AUTH_RATE_LIMIT_CAPACITY: '7',
-    WRITE_RATE_LIMIT_CAPACITY: '42'
+    WRITE_RATE_LIMIT_CAPACITY: '42',
+    TRUST_PROXY_HOPS: '2',
+    ALERTS_SWEEP_LEADER: 'false',
+    DATABASE_URL: 'postgres://localhost/ttc',
+    AUDIT_LOG_FILE: '/tmp/audit.jsonl',
+    AUDIT_LOG_MAX_ENTRIES: '99',
+    HOLIDAYS_ENABLED: 'false'
   });
 
   assert.equal(config.nodeEnv, 'production');
@@ -152,6 +169,12 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
   assert.equal(config.offerSigningSecret, 'osec');
   assert.equal(config.authRateLimitCapacity, 7);
   assert.equal(config.writeRateLimitCapacity, 42);
+  assert.equal(config.trustProxyHops, 2);
+  assert.equal(config.alertsSweepLeader, false);
+  assert.equal(config.databaseUrl, 'postgres://localhost/ttc');
+  assert.equal(config.auditLogFile, '/tmp/audit.jsonl');
+  assert.equal(config.auditLogMaxEntries, 99);
+  assert.equal(config.holidaysEnabled, false);
 });
 
 test('loadConfig auth flag: explicit REQUIRE_API_KEY and production-without-keys', () => {

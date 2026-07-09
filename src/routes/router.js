@@ -2,6 +2,7 @@ import { success, error } from '../utils/formatter.js';
 import { authenticate, createRequestContext, responseHeaders } from '../utils/http.js';
 import { readJsonBody, readRawBody } from '../utils/requestBody.js';
 import { lockOffer } from '../booking/offerLock.js';
+import { toPrometheus } from '../observability/prometheus.js';
 
 const SOURCE = 'the-travel-club';
 const SESSION_COOKIE = 'tc_session';
@@ -49,7 +50,7 @@ const routeMap = new Map([
 
 // Versioned routes advertised in discovery responses (the unversioned aliases
 // stay available but are not promoted).
-const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/billing', '/v1/loyalty', '/v1/assistant', '/v1/trust', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
+const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/billing', '/v1/loyalty', '/v1/assistant', '/v1/trust', '/v1/holidays', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
@@ -66,7 +67,7 @@ const staticAssets = new Map([
   ['/icon.svg', 'image/svg+xml']
 ]);
 
-export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, assets = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null, assistantService = null, authLimiter = null, writeLimiter = null, offerSecret = null }) {
+export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, assets = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null, assistantService = null, authLimiter = null, writeLimiter = null, offerSecret = null, idempotencyStore = null, auditLog = null, holidays = null }) {
   const context = createRequestContext(req);
   setHeaders(res, responseHeaders({ requestId: context.requestId, origin: req.headers.origin, allowedOrigins: config.allowedOrigins }));
 
@@ -90,6 +91,27 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
     fail(429, 'Too many requests. Please slow down.', { retryAfter });
     return true;
   };
+  // Idempotency for money/booking mutations: a repeated request with the same
+  // Idempotency-Key replays the first response instead of acting twice.
+  const idemKeyFor = (principalKey) => {
+    const header = req.headers['idempotency-key'];
+    return idempotencyStore && header ? idempotencyStore.keyFor(principalKey, req.method, url.pathname, header) : null;
+  };
+  const replayIdempotent = (idem) => {
+    const cached = idem && idempotencyStore.get(idem);
+    if (!cached) return false;
+    res.setHeader('Idempotent-Replay', 'true');
+    sendJson(res, cached.statusCode, cached.body, context, logger);
+    return true;
+  };
+  const okIdempotent = (idem, statusCode, data, extraMeta = {}) => {
+    const body = success(SOURCE, data, { brand: brandMeta, requestId: context.requestId, version: brand.apiVersion, ...extraMeta });
+    if (idem) idempotencyStore.put(idem, statusCode, body);
+    return sendJson(res, statusCode, body, context, logger);
+  };
+  // Immutable audit trail for security- and money-relevant actions (no-op when
+  // no audit sink is configured).
+  const audit = (fields) => auditLog?.record(fields);
 
   if (req.method === 'OPTIONS') return sendJson(res, 204, null, context, logger);
 
@@ -114,7 +136,7 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   // API-key auth used by programmatic clients; either can satisfy access.
   const identity = accountService ? accountService.identify(readCookie(req, SESSION_COOKIE)) : null;
   // Rate-limit key: the signed-in user when present, else the client IP.
-  const rlKey = identity ? `user:${identity.user.id}` : clientIp(req);
+  const rlKey = identity ? `user:${identity.user.id}` : clientIp(req, config.trustProxyHops);
 
   // CSRF defense-in-depth: reject a cross-origin mutating request that carries a
   // session cookie. SameSite=Lax already blocks this in browsers; this is a
@@ -175,7 +197,7 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   if (authPaths.has(pathname)) {
     if (!accountService) return fail(404, 'Accounts are not enabled on this deployment', { path: pathname });
     // Throttle signup/login per client IP to blunt brute force and spam.
-    if ((pathname === '/v1/auth/signup' || pathname === '/v1/auth/login') && throttled(authLimiter, clientIp(req))) {
+    if ((pathname === '/v1/auth/signup' || pathname === '/v1/auth/login') && throttled(authLimiter, clientIp(req, config.trustProxyHops))) {
       return;
     }
     try {
@@ -185,13 +207,14 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
       }
       if (pathname === '/v1/auth/logout') {
         // Invalidate every existing token for this user, not just this cookie.
-        if (identity) accountService.logout(identity.user);
+        if (identity) { accountService.logout(identity.user); audit({ actor: identity.user.id, action: 'account.logout' }); }
         res.setHeader('Set-Cookie', clearCookie(config));
         return ok(200, { signedOut: true });
       }
       const body = await readJsonBody(req);
       const result = pathname === '/v1/auth/signup' ? await accountService.signup(body) : await accountService.login(body);
       res.setHeader('Set-Cookie', sessionCookie(result.token, config));
+      audit({ actor: result.user.id, action: pathname === '/v1/auth/signup' ? 'account.signup' : 'account.login' });
       return ok(pathname === '/v1/auth/signup' ? 201 : 200, { user: result.user }, { principal: `user:${result.user.id}` });
     } catch (err) {
       const statusCode = err.statusCode || 500;
@@ -217,10 +240,16 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
         return ok(200, billingService.status(identity.user), { principal: userPrincipal });
       }
       if (pathname === '/v1/billing/subscribe') {
+        const idem = idemKeyFor(userPrincipal);
+        if (replayIdempotent(idem)) return;
         const body = await readJsonBody(req);
-        return ok(200, await billingService.subscribe(identity.user, body.tier), { principal: userPrincipal });
+        const subscribed = await billingService.subscribe(identity.user, body.tier);
+        audit({ actor: identity.user.id, action: 'billing.subscribe', target: body.tier });
+        return okIdempotent(idem, 200, subscribed, { principal: userPrincipal });
       }
-      return ok(200, await billingService.cancel(identity.user), { principal: userPrincipal });
+      const cancelled = await billingService.cancel(identity.user);
+      audit({ actor: identity.user.id, action: 'billing.cancel' });
+      return ok(200, cancelled, { principal: userPrincipal });
     } catch (err) {
       const statusCode = err.statusCode || 500;
       const message = statusCode >= 500 ? 'Unexpected error' : err.message;
@@ -239,8 +268,10 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
       if (pathname === '/v1/loyalty') {
         return ok(200, loyaltyService.summary(identity.user), { principal: userPrincipal });
       }
+      const idem = idemKeyFor(userPrincipal);
+      if (replayIdempotent(idem)) return;
       const body = await readJsonBody(req);
-      return ok(200, loyaltyService.redeem(identity.user, body.points), { principal: userPrincipal });
+      return okIdempotent(idem, 200, loyaltyService.redeem(identity.user, body.points), { principal: userPrincipal });
     } catch (err) {
       const statusCode = err.statusCode || 500;
       const message = statusCode >= 500 ? 'Unexpected error' : err.message;
@@ -292,7 +323,12 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
   }
 
   if (pathname === '/metrics') {
-    return ok(200, engine.metricsSnapshot());
+    const snapshot = engine.metricsSnapshot();
+    // Content-negotiate: Prometheus scrapers get text exposition format, others JSON.
+    if (String(req.headers.accept || '').includes('text/plain') || url.searchParams.get('format') === 'prometheus') {
+      return sendText(res, 200, toPrometheus(snapshot), 'text/plain; version=0.0.4; charset=utf-8', context, logger);
+    }
+    return ok(200, snapshot);
   }
 
   try {
@@ -300,6 +336,13 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
 
     if (pathname === '/v1/prices/history') {
       return ok(200, engine.priceHistorySnapshot(query.type, query), { principal });
+    }
+
+    // Public-holidays enrichment (free, keyless). Enrichment only: never pricing
+    // or booking. Handy travel context for planning around a destination.
+    if (pathname === '/v1/holidays') {
+      if (!holidays || !holidays.enabled) return fail(404, 'Holiday enrichment is not enabled on this deployment', { path: pathname });
+      return ok(200, await holidays.holidays(query.country, Number(query.year)), { principal });
     }
 
     // Price alerts / saved searches (owner-scoped by principal).
@@ -324,8 +367,12 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
       if (throttled(writeLimiter, principal)) return;
       if (pathname === '/v1/orders') {
         if (req.method === 'POST') {
+          const idem = idemKeyFor(principal);
+          if (replayIdempotent(idem)) return;
           const body = await readJsonBody(req);
-          return ok(201, await bookingService.createOrder(body, { principal, tier }), { principal });
+          const order = await bookingService.createOrder(body, { principal, tier });
+          audit({ actor: principal, action: 'order.create', target: order.id, meta: { total: order.total } });
+          return okIdempotent(idem, 201, order, { principal });
         }
         return ok(200, bookingService.listOrders({ principal }), { principal });
       }
@@ -336,13 +383,15 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
         return fail(400, 'Invalid order id', { path: pathname });
       }
       if (req.method === 'DELETE') {
-        return ok(200, await bookingService.cancelOrder(orderId, { principal }), { principal });
+        const cancelledOrder = await bookingService.cancelOrder(orderId, { principal });
+        audit({ actor: principal, action: 'order.cancel', target: orderId });
+        return ok(200, cancelledOrder, { principal });
       }
       return ok(200, bookingService.getOrder(orderId, { principal }), { principal });
     }
 
     // Rate-limit per authenticated principal when available, else per client IP.
-    const clientKey = principal && principal !== 'anonymous' ? principal : clientIp(req);
+    const clientKey = principal && principal !== 'anonymous' ? principal : clientIp(req, config.trustProxyHops);
 
     if (pathname === '/v1/flights/calendar') {
       const calendar = await engine.flexibleSearch('flights', query, { clientKey }, { flexDays: query.flex });
@@ -407,6 +456,7 @@ function serviceIndex(brand, now = Date.now()) {
       billing: '/v1/billing',
       loyalty: '/v1/loyalty',
       assistant: '/v1/assistant',
+      holidays: '/v1/holidays?country=US&year=2026',
       airport: '/v1/airport/info?code=LAX',
       tracking: '/v1/flights/live?icao24=4b1814'
     }
@@ -522,9 +572,22 @@ function clearCookie(config) {
   return parts.join('; ');
 }
 
-export function clientIp(req) {
-  const forwarded = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return forwarded || req.socket?.remoteAddress || 'unknown';
+// The client address for rate limiting. X-Forwarded-For is spoofable, so it is
+// only trusted when the operator declares how many reverse-proxy hops sit in
+// front (TRUST_PROXY_HOPS); we then read the address the outermost trusted proxy
+// observed (the Nth entry from the right). With 0 hops (the default) the header
+// is ignored entirely and the socket address, which a client cannot forge, is used.
+export function clientIp(req, trustProxyHops = 0) {
+  if (trustProxyHops > 0) {
+    const hops = String(req.headers['x-forwarded-for'] || '').split(',').map((h) => h.trim()).filter(Boolean);
+    if (hops.length > 0) {
+      // Count trustProxyHops back from the right; if more hops are trusted than
+      // present, every entry is from a trusted proxy so the leftmost is the client.
+      const idx = Math.max(0, hops.length - trustProxyHops);
+      if (hops[idx]) return hops[idx];
+    }
+  }
+  return req.socket?.remoteAddress || 'unknown';
 }
 
 function setHeaders(res, headers) {

@@ -1,0 +1,80 @@
+# THE Travel Club - local / single-host composition.
+#
+# NOTE ON TLS AND PROXYING:
+# The `app` service speaks plain HTTP and trusts a bounded number of proxy hops
+# (TRUST_PROXY_HOPS) when reading X-Forwarded-For. Put a trusted reverse proxy
+# (nginx, Caddy, an ALB, etc.) in front of `app` that terminates TLS, adds HSTS,
+# and OVERWRITES the X-Forwarded-For header with the real client IP so a client
+# cannot spoof its address to defeat per-IP rate limits. Never expose `app`
+# directly to the public internet.
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Connection strings point at the sibling services on the compose network.
+      DATABASE_URL: ${DATABASE_URL:-postgres://travel:travel@postgres:5432/travel}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Secrets - set stable values in production (do not rely on defaults).
+      SESSION_SECRET: ${SESSION_SECRET}
+      OFFER_SIGNING_SECRET: ${OFFER_SIGNING_SECRET}
+      # Stripe (membership billing).
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_PRICE_SILVER: ${STRIPE_PRICE_SILVER}
+      STRIPE_PRICE_GOLD: ${STRIPE_PRICE_GOLD}
+      # Booking / supplier credentials.
+      DUFFEL_TOKEN: ${DUFFEL_TOKEN}
+      HOTELBEDS_API_KEY: ${HOTELBEDS_API_KEY}
+      HOTELBEDS_SECRET: ${HOTELBEDS_SECRET}
+      # CORS and trusted-proxy configuration.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-travel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-travel}
+      POSTGRES_DB: ${POSTGRES_DB:-travel}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-travel} -d ${POSTGRES_DB:-travel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Reserved for a future distributed rate limiter (today rate limiting is
+  # in-process). Wiring it in lets multiple `app` instances share limit state.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "\"\"", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres-data:

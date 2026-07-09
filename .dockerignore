@@ -1,0 +1,31 @@
+# Dependencies and build artifacts
+node_modules
+coverage
+*.log
+
+# Secrets and local environment
+.env
+.env.local
+.env.*.local
+
+# Version control and CI
+.git
+.gitignore
+.github
+
+# Local persistence / runtime data (JSONL stores, price history, etc.)
+data
+
+# Scratch and temporary files
+scratch
+tmp
+*.tmp
+
+# Docker and compose files (not needed inside the image)
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Tests and docs are not required at runtime
+test
+docs

@@ -52,9 +52,18 @@ paths:
   /metrics:
     get:
       summary: Internal in-process counters and timing snapshots.
+      description: >-
+        Returns JSON by default. Sends a Prometheus text exposition instead when
+        the request carries `Accept: text/plain` or `?format=prometheus`.
+      parameters:
+        - in: query
+          name: format
+          required: false
+          description: Set to `prometheus` to force the Prometheus text exposition.
+          schema: { type: string, enum: [prometheus] }
       responses:
         '200':
-          description: Metrics snapshot.
+          description: Metrics snapshot (JSON, or Prometheus text on negotiation).
   /v1/flights/search:
     get:
       summary: Search flight offers.
@@ -218,6 +227,28 @@ paths:
         '200': { description: Samples, average, lowest, latest, and a recent series. }
         '400': { description: Invalid or missing parameters. }
         '404': { description: Price history is disabled. }
+  /v1/holidays:
+    get:
+      summary: Public holidays for a country and year (free, keyless enrichment; Nager.Date).
+      description: >-
+        Travel-planning context only. This endpoint never influences pricing,
+        ranking, booking, money movement, or compliance. Returns 404 when the
+        enrichment is disabled on the deployment.
+      parameters:
+        - in: query
+          name: country
+          required: true
+          description: ISO 3166-1 alpha-2 country code, for example US or FR.
+          schema: { type: string, minLength: 2, maxLength: 2 }
+        - in: query
+          name: year
+          required: true
+          schema: { type: integer, minimum: 1975, maximum: 2100 }
+      responses:
+        '200': { description: Country, year, count, and the normalized list of public holidays. }
+        '400': { description: Invalid country code or year. }
+        '404': { description: Holiday enrichment is not enabled on this deployment. }
+        '502': { description: The upstream holidays source was unavailable or malformed. }
   /v1/alerts:
     get:
       summary: List the caller's price alerts / saved searches (owner-scoped by API key).
@@ -331,6 +362,8 @@ paths:
     post:
       security: []
       summary: Book an offer via the aggregator (merchant of record). Adds a tier-aware service fee.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -396,6 +429,8 @@ paths:
     post:
       security: []
       summary: Subscribe the signed-in member to a paid tier (upgrades their membership).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -440,6 +475,8 @@ paths:
     post:
       security: []
       summary: Redeem loyalty points for account credit (100 points per USD).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -503,6 +540,16 @@ paths:
         '200': { description: Tracking information. }
         '400': { description: Invalid query. }
 components:
+  parameters:
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: false
+      description: >-
+        Optional client-supplied key that makes this money/booking mutation
+        safe to retry. A repeat request with the same key replays the first
+        response (with `Idempotent-Replay: true`) instead of acting twice.
+      schema: { type: string, maxLength: 200 }
   securitySchemes:
     ApiKeyAuth:
       type: apiKey

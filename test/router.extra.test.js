@@ -292,9 +292,25 @@ test('/v1/flights/calendar surfaces engine validation errors', async () => {
   });
 });
 
-test('clientIp falls back to "unknown" without a forwarded header or socket', () => {
+test('clientIp ignores X-Forwarded-For by default and uses the socket address', () => {
   assert.equal(clientIp({ headers: {}, socket: null }), 'unknown');
-  assert.equal(clientIp({ headers: { 'x-forwarded-for': '198.51.100.9' }, socket: null }), '198.51.100.9');
+  // Default (no trusted proxy): a client-supplied X-Forwarded-For is ignored so
+  // it cannot spoof its way around rate limiting; the socket address wins.
+  assert.equal(clientIp({ headers: { 'x-forwarded-for': '198.51.100.9' }, socket: { remoteAddress: '10.0.0.5' } }), '10.0.0.5');
+  assert.equal(clientIp({ headers: { 'x-forwarded-for': '198.51.100.9' }, socket: null }), 'unknown');
+});
+
+test('clientIp trusts the Nth-from-last forwarded hop when proxies are configured', () => {
+  const headers = { 'x-forwarded-for': '203.0.113.7, 70.0.0.1, 10.0.0.1' };
+  // One trusted proxy: the last hop is our own proxy, so the real client is the
+  // second-from-last entry.
+  assert.equal(clientIp({ headers, socket: { remoteAddress: '10.0.0.1' } }, 1), '10.0.0.1');
+  assert.equal(clientIp({ headers, socket: { remoteAddress: '10.0.0.1' } }, 2), '70.0.0.1');
+  assert.equal(clientIp({ headers, socket: { remoteAddress: '10.0.0.1' } }, 3), '203.0.113.7');
+  // More hops trusted than present: fall back to the first (leftmost) entry.
+  assert.equal(clientIp({ headers, socket: { remoteAddress: '10.0.0.1' } }, 9), '203.0.113.7');
+  // Trusted hops set but no forwarded header: socket address.
+  assert.equal(clientIp({ headers: {}, socket: { remoteAddress: '10.0.0.1' } }, 1), '10.0.0.1');
 });
 
 test('wantsHtml detects browsers and tolerates a missing Accept header', () => {
@@ -303,13 +319,27 @@ test('wantsHtml detects browsers and tolerates a missing Accept header', () => {
   assert.equal(wantsHtml({ headers: {} }), false); // no Accept header at all
 });
 
-test('an X-Forwarded-For client is rate-limited by its forwarded address', async () => {
+test('an X-Forwarded-For client is rate-limited by its forwarded address behind a trusted proxy', async () => {
+  const seen = [];
+  const engine = fakeEngine({ search: async (type, query, ctx) => { seen.push(ctx.clientKey); return { query: {}, count: 0, offers: [], providers: [] }; } });
+  // One trusted reverse-proxy hop, so the address our proxy wrote (the last hop)
+  // is the real client and is honored.
+  await withServer({ ...openConfig, trustProxyHops: 1 }, engine, async (base) => {
+    const res = await fetch(`${base}/v1/flights/search?from=LAX&to=JFK`, { headers: { 'x-forwarded-for': '203.0.113.7' } });
+    assert.equal(res.status, 200);
+    assert.equal(seen[0], '203.0.113.7'); // the client address written by the trusted proxy
+  });
+});
+
+test('an X-Forwarded-For header is ignored without a trusted proxy', async () => {
   const seen = [];
   const engine = fakeEngine({ search: async (type, query, ctx) => { seen.push(ctx.clientKey); return { query: {}, count: 0, offers: [], providers: [] }; } });
   await withServer(openConfig, engine, async (base) => {
-    const res = await fetch(`${base}/v1/flights/search?from=LAX&to=JFK`, { headers: { 'x-forwarded-for': '203.0.113.7, 10.0.0.1' } });
+    const res = await fetch(`${base}/v1/flights/search?from=LAX&to=JFK`, { headers: { 'x-forwarded-for': '203.0.113.7' } });
     assert.equal(res.status, 200);
-    assert.equal(seen[0], '203.0.113.7'); // first hop wins, not the socket address
+    // Default config trusts no proxy: the spoofable header is ignored, the loopback
+    // socket address is used as the rate-limit key.
+    assert.match(seen[0], /127\.0\.0\.1|::1|::ffff:127\.0\.0\.1/);
   });
 });
 

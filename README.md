@@ -143,6 +143,38 @@ inputs; the deterministic engine and validators remain the single source of trut
   `POST /v1/assistant/parse` returns a suggestion plus a disclaimer. The web app shows a "Describe
   your trip" box only when the assistant is enabled.
 
+## Public-holidays enrichment (optional, keyless)
+
+`GET /v1/holidays?country=US&year=2026` returns the public holidays for a country and year, backed
+by the free, keyless [Nager.Date](https://date.nager.at) API. It is **enrichment only**, planning
+context for a destination, and like the assistant it is walled off from pricing, ranking, booking,
+money, and compliance. Enabled by default; set `HOLIDAYS_ENABLED=false` to turn it off (the endpoint
+then returns `404`). The curated *awesome-scrape-free-apis* list was evaluated for this and turned
+out to be entirely RapidAPI-hosted and key-required, so Nager.Date was used instead as a genuinely
+no-key source alongside the existing keyless Frankfurter currency converter.
+
+## Production hardening
+
+Beyond the red-team fixes, a production-readiness pass added the operational safeguards a
+money-handling service needs:
+
+- **Idempotency.** `POST /v1/orders`, `/v1/billing/subscribe`, and `/v1/loyalty/redeem` accept an
+  `Idempotency-Key` header; a retried request replays the first response (`Idempotent-Replay: true`)
+  rather than booking or charging twice.
+- **Immutable audit trail.** Signups, logins, subscription changes, and order create/cancel are
+  recorded to an append-only log (`AUDIT_LOG_FILE`) that redacts secret-like fields.
+- **Un-spoofable rate-limit identity.** `X-Forwarded-For` is ignored unless `TRUST_PROXY_HOPS` is set
+  to the real reverse-proxy depth, so the socket address (which a client cannot forge) is the key.
+- **Fail-fast config.** In production the server refuses to boot without a session/offer secret, with
+  a too-short secret, with live Stripe but no webhook secret, or with wildcard CORS plus cookies.
+- **Leader-only sweep.** The background alert sweep runs only on the elected leader
+  (`ALERTS_SWEEP_LEADER`) so scaled deployments do not send duplicate notifications.
+- **Prometheus metrics.** `GET /metrics` serves a Prometheus text exposition on
+  `Accept: text/plain` or `?format=prometheus`, and JSON otherwise.
+- **Durable storage path.** A transactional Postgres store for accounts/orders/loyalty ships in
+  `src/data/postgresStores.js` (`DATABASE_URL`); adopting it as the live backend is the documented
+  next step. See `docs/deployment.md` for the container, compose, and CI artifacts.
+
 ## Lowest-price comparison
 
 For each vertical the engine fans out to every connected provider in parallel, then makes the

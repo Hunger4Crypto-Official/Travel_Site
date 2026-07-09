@@ -109,6 +109,28 @@ The single item that still needs external infrastructure is **email-verification
 non-enumeration** (signup currently reveals whether an email is registered); it is mitigated by rate
 limiting and requires an email provider to fully close.
 
+A subsequent production-readiness pass then hardened the operational surface:
+
+- **Idempotency for money mutations.** `POST /v1/orders`, `POST /v1/billing/subscribe`, and
+  `POST /v1/loyalty/redeem` honor an `Idempotency-Key` header: a retried request replays the first
+  response (`Idempotent-Replay: true`) instead of double-booking or double-charging.
+- **Immutable audit trail.** Signups, logins, logouts, subscription changes, and order
+  create/cancel are recorded to an append-only log that redacts secret-like fields.
+- **Un-spoofable client identity.** Rate-limit keys are derived from the socket address by default;
+  `X-Forwarded-For` is trusted only when `TRUST_PROXY_HOPS` is set to the real proxy depth, so a
+  client cannot rotate a forged header to escape a limit.
+- **Fail-fast configuration.** In production the server refuses to boot with a missing session or
+  offer-signing secret, a short secret, live Stripe without a webhook secret, or a wildcard CORS
+  origin while cookie sessions are enabled.
+- **Single-writer background sweep.** The price-alert sweep runs only on the elected leader
+  (`ALERTS_SWEEP_LEADER`) so a horizontally-scaled deployment does not fire duplicate notifications.
+- **Prometheus metrics.** `GET /metrics` content-negotiates a Prometheus text exposition
+  (`Accept: text/plain` or `?format=prometheus`) alongside the JSON snapshot.
+- **Durable transactional storage.** A Postgres-backed store for accounts/orders/loyalty ships in
+  `src/data/postgresStores.js` (transactions, unique-violation handling, migrations). Adopting it as
+  the live backend is a documented next step that makes the service store-calls async; the in-memory
+  + JSONL stores remain the default for dev and single-node deployments.
+
 ## 8. Honest failures
 
 When a data source fails we say so (`providers[].status` with a coarse error category and an

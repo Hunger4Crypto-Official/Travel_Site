@@ -23,10 +23,24 @@ import { createBookingService } from './src/booking/index.js';
 import { createBillingService } from './src/billing/index.js';
 import { createLoyaltyService } from './src/loyalty/index.js';
 import { createAssistantService } from './src/assistant/index.js';
+import { assertProductionReady } from './src/config/validate.js';
+import { IdempotencyStore } from './src/utils/idempotencyStore.js';
+import { AuditLog } from './src/observability/auditLog.js';
+import { createPublicHolidays } from './src/enrichment/publicHolidays.js';
+import { fetchJson } from './src/utils/httpClient.js';
 
 loadDotEnv({ path: new URL('./.env', import.meta.url).pathname });
 const config = loadConfig();
 const logger = createLogger({ level: config.requestLogLevel });
+
+// Refuse to boot with an unsafe production configuration (missing secrets,
+// wildcard CORS with cookie sessions, live Stripe without a webhook secret).
+try {
+  assertProductionReady(config);
+} catch (err) {
+  logger.error('Startup blocked', { error: err.message });
+  process.exit(1);
+}
 const currencyConverter = config.currencyConversionEnabled
   ? new CurrencyConverter({ base: config.baseCurrency, ttlMs: config.currencyTtlMs })
   : null;
@@ -95,7 +109,13 @@ const bookingService = createBookingService(config, { loyalty: loyaltyService, o
 const authLimiter = new KeyedRateLimiter({ capacity: config.authRateLimitCapacity, refillPerMinute: config.authRateLimitCapacity });
 const writeLimiter = new KeyedRateLimiter({ capacity: config.writeRateLimitCapacity, refillPerMinute: config.writeRateLimitCapacity });
 
-const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, assets, accountService, bookingService, billingService, loyaltyService, assistantService, authLimiter, writeLimiter, offerSecret }));
+// Idempotency for money/booking mutations, an immutable audit trail, and a free
+// public-holidays enrichment (keyless, enrichment only, never pricing/booking).
+const idempotencyStore = new IdempotencyStore();
+const auditLog = new AuditLog({ filePath: config.auditLogFile, maxEntries: config.auditLogMaxEntries });
+const holidays = createPublicHolidays({ fetchJson, enabled: config.holidaysEnabled });
+
+const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, assets, accountService, bookingService, billingService, loyaltyService, assistantService, authLimiter, writeLimiter, offerSecret, idempotencyStore, auditLog, holidays }));
 
 server.listen(config.port, () => {
   logger.info('Server started', { service: brand.name, acronym: brand.acronym, port: config.port, nodeEnv: config.nodeEnv });
@@ -104,7 +124,7 @@ server.listen(config.port, () => {
 // Background price-alert sweep. Unref'd so it never keeps the process alive on
 // its own, and cleared on shutdown.
 let alertTimer = null;
-if (alertStore && config.alertsCheckIntervalMs > 0) {
+if (alertStore && config.alertsCheckIntervalMs > 0 && config.alertsSweepLeader) {
   alertTimer = setInterval(() => {
     engine.checkAlerts()
       .then((summary) => { if (summary.triggered > 0) logger.info('Alerts triggered', summary); })

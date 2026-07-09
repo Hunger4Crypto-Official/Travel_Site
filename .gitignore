@@ -8,5 +8,6 @@ node_modules/
 coverage/
 *.log
 
-# Local price-history persistence
-data/
+# Local runtime persistence (JSONL stores at the repo root). Scoped to the root
+# so it never swallows source directories like src/data/ or test/data/.
+/data/

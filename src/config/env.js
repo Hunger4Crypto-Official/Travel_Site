@@ -17,7 +17,9 @@ const integerSettings = [
   ['ORDERS_MAX_ENTRIES', 50000],
   ['LOYALTY_MAX_ENTRIES', 100000],
   ['AUTH_RATE_LIMIT_CAPACITY', 10],
-  ['WRITE_RATE_LIMIT_CAPACITY', 60]
+  ['WRITE_RATE_LIMIT_CAPACITY', 60],
+  ['TRUST_PROXY_HOPS', 0],
+  ['AUDIT_LOG_MAX_ENTRIES', 5000]
 ];
 
 export function loadConfig(env = process.env) {
@@ -117,7 +119,21 @@ export function loadConfig(env = process.env) {
     // sensitive routes the engine limiter does not cover.
     offerSigningSecret: env.OFFER_SIGNING_SECRET || null,
     authRateLimitCapacity: values.AUTH_RATE_LIMIT_CAPACITY,
-    writeRateLimitCapacity: values.WRITE_RATE_LIMIT_CAPACITY
+    writeRateLimitCapacity: values.WRITE_RATE_LIMIT_CAPACITY,
+    // Number of trusted reverse-proxy hops. 0 (default) ignores X-Forwarded-For
+    // entirely and uses the socket address, which a client cannot spoof.
+    trustProxyHops: values.TRUST_PROXY_HOPS,
+    // Only the elected leader instance should run the background alert sweep, so
+    // horizontally-scaled deployments do not send duplicate notifications.
+    alertsSweepLeader: env.ALERTS_SWEEP_LEADER !== 'false',
+    // Postgres connection string. When set, durable transactional storage backs
+    // accounts/orders/loyalty instead of the in-memory + JSONL dev stores.
+    databaseUrl: env.DATABASE_URL || null,
+
+    // Immutable audit trail + free public-holidays enrichment.
+    auditLogFile: env.AUDIT_LOG_FILE || null,
+    auditLogMaxEntries: values.AUDIT_LOG_MAX_ENTRIES,
+    holidaysEnabled: env.HOLIDAYS_ENABLED !== 'false'
   };
 }
 

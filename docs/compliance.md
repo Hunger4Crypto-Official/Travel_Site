@@ -71,6 +71,11 @@ compliance. It only proposes search fields, which pass a strict whitelist saniti
 validated by the deterministic engine. It never sets prices, ranks results, books, or produces any
 compliance or eligibility text.
 
+The same wall applies to every enrichment source (public holidays, and the in-trip concierge's
+weather, nearby places, and destination guides): they provide labeled travel context only, are never
+wired to pricing, ranking, booking, money movement, or compliance decisions, and carry the
+attribution their licenses require (OpenStreetMap ODbL, Wikivoyage CC BY-SA).
+
 ## 7. Red-team hardening (post-audit)
 
 A multi-agent red-team pass plus live exploit drills against the running server found and closed a

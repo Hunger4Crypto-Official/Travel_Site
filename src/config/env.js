@@ -133,7 +133,11 @@ export function loadConfig(env = process.env) {
     // Immutable audit trail + free public-holidays enrichment.
     auditLogFile: env.AUDIT_LOG_FILE || null,
     auditLogMaxEntries: values.AUDIT_LOG_MAX_ENTRIES,
-    holidaysEnabled: env.HOLIDAYS_ENABLED !== 'false'
+    holidaysEnabled: env.HOLIDAYS_ENABLED !== 'false',
+
+    // In-trip concierge (weather, nearby places, destination guides). Keyless
+    // sources, enrichment only: never pricing, ranking, booking, or compliance.
+    conciergeEnabled: env.CONCIERGE_ENABLED !== 'false'
   };
 }
 

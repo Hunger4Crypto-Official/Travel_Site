@@ -90,6 +90,18 @@
   nav.tabbar button.on { color:var(--ink); }
   nav.tabbar button.on .ic { filter:drop-shadow(0 4px 10px rgba(57,135,229,0.6)); }
   .empty { text-align:center; color:var(--muted); padding:40px 10px; }
+  .wx-row { display:flex; gap:8px; overflow-x:auto; padding:2px; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  .wx-row::-webkit-scrollbar { display:none; }
+  .wx { flex:none; min-width:76px; text-align:center; padding:10px 8px; border:1px solid var(--card-border); border-radius:14px; background:rgba(255,255,255,0.03); }
+  .wx .d { font-size:11px; color:var(--muted); font-weight:700; letter-spacing:0.3px; text-transform:uppercase; }
+  .wx .i { font-size:22px; line-height:1.5; }
+  .wx .t { font-size:13px; font-weight:700; }
+  .wx .t span { color:var(--muted); font-weight:500; }
+  .place { display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid var(--card-border); }
+  .place:first-of-type { border-top:0; padding-top:2px; }
+  .place .nm { flex:1; min-width:0; font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .place .nm small { display:block; color:var(--muted); font-weight:500; font-size:11px; text-transform:capitalize; }
+  .attribution { color:var(--muted); font-size:10.5px; text-align:center; margin:14px 6px 0; line-height:1.6; }
   .toast { position:fixed; left:50%; bottom:calc(96px + var(--safe-b)); transform:translateX(-50%); background:#161f3d; border:1px solid var(--card-border); color:var(--ink); padding:12px 16px; border-radius:12px; box-shadow:var(--shadow); max-width:90%; z-index:50; font-size:14px; }
   .sheet-bg { position:fixed; inset:0; background:rgba(4,7,16,0.6); z-index:40; display:flex; align-items:flex-end; justify-content:center; }
   .sheet { width:100%; max-width:520px; background:var(--bg2); border-top-left-radius:22px; border-top-right-radius:22px; border:1px solid var(--card-border); border-bottom:0; padding:18px 16px calc(24px + var(--safe-b)); max-height:92vh; overflow:auto; }
@@ -118,13 +130,14 @@
   <nav class="tabbar"><div class="inner">
     <button id="tab-search" onclick="go('search')"><span class="ic">&#128269;</span>Search</button>
     <button id="tab-trips" onclick="go('trips')"><span class="ic">&#9992;</span>Trips</button>
+    <button id="tab-concierge" onclick="go('concierge')"><span class="ic">&#129517;</span>Concierge</button>
     <button id="tab-account" onclick="go('account')"><span class="ic">&#128100;</span>Account</button>
   </div></nav>
 </div>
 
 <script>
 "use strict";
-const state = { view:'search', me:null, type:'flights', offers:[], lastQuery:null, assistant:{enabled:false} };
+const state = { view:'search', me:null, type:'flights', offers:[], lastQuery:null, assistant:{enabled:false}, concierge:null, conciergeCity:'', conciergeCategory:'see' };
 
 function el(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstChild; }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -149,13 +162,14 @@ async function boot(){
 }
 function go(view){ state.view=view; render(); window.scrollTo(0,0); }
 function setTabs(){
-  ['search','trips','account'].forEach(v=>{ const b=document.getElementById('tab-'+v); if(b) b.classList.toggle('on', state.view===v); });
+  ['search','trips','concierge','account'].forEach(v=>{ const b=document.getElementById('tab-'+v); if(b) b.classList.toggle('on', state.view===v); });
   const label=document.getElementById('acctLabel'), chip=document.getElementById('acctChip');
   if(state.me){ label.textContent=state.me.email.split('@')[0]; chip.classList.add('on'); } else { label.textContent='Sign in'; chip.classList.remove('on'); }
 }
 function render(){ setTabs(); const v=document.getElementById('view'); v.innerHTML='';
   if(state.view==='search') return renderSearch(v);
   if(state.view==='trips') return renderTrips(v);
+  if(state.view==='concierge') return renderConcierge(v);
   if(state.view==='account') return renderAccount(v);
 }
 
@@ -298,6 +312,123 @@ async function renderTrips(v){
   }catch(e){ box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
 }
 function clear(v){ v.innerHTML=''; return v; }
+
+/* ---------- Concierge ---------- */
+function wxIcon(desc){
+  const d=String(desc||'').toLowerCase();
+  if(d.indexOf('thunder')>=0) return '⛈️';
+  if(d.indexOf('snow')>=0||d.indexOf('freezing')>=0) return '❄️';
+  if(d.indexOf('shower')>=0||d.indexOf('drizzle')>=0) return '🌦️';
+  if(d.indexOf('rain')>=0) return '🌧️';
+  if(d.indexOf('fog')>=0) return '🌫️';
+  if(d.indexOf('overcast')>=0) return '☁️';
+  if(d.indexOf('partly')>=0) return '⛅';
+  if(d.indexOf('clear')>=0) return '☀️';
+  return '🌡️';
+}
+function weekday(iso){ try{ return new Date(iso+'T12:00:00Z').toLocaleDateString(undefined,{weekday:'short'}); }catch(e){ return iso; } }
+function conciergeCache(){ try{ const raw=localStorage.getItem('tc.concierge.last'); return raw?JSON.parse(raw):null; }catch(e){ return null; } }
+function renderConcierge(v){
+  v.appendChild(el('<h2 class="view-title">Trip concierge</h2>'));
+  v.appendChild(el('<div class="sub">Weather, local ideas, and context for where you are. Free community sources, saved for offline.</div>'));
+  const form=el('<div class="card"></div>');
+  form.appendChild(el('<div class="field"><label>Destination city</label><input id="c_city" placeholder="Lisbon" value="'+esc(state.conciergeCity||'')+'"></div>'));
+  const seg=el('<div class="seg" style="margin-bottom:12px"></div>');
+  [['see','See'],['eat','Eat'],['cafe','Cafes'],['drink','Drinks'],['park','Parks']].forEach(p=>{
+    const b=el('<button'+(state.conciergeCategory===p[0]?' class="on"':'')+'>'+p[1]+'</button>');
+    b.onclick=()=>{ state.conciergeCity=q('c_city'); state.conciergeCategory=p[0]; render(); if(state.conciergeCity) loadConcierge(); };
+    seg.appendChild(b);
+  });
+  form.appendChild(seg);
+  const btn=el('<button class="btn">Get my briefing</button>'); btn.onclick=loadConcierge; form.appendChild(btn);
+  v.appendChild(form);
+  const out=el('<div id="concOut" style="margin-top:14px"></div>'); v.appendChild(out);
+  const cached=conciergeCache();
+  if(state.concierge) renderBriefing(out, state.concierge, false);
+  else if(cached && cached.data){
+    renderBriefing(out, cached.data, true);
+    const inp=document.getElementById('c_city'); if(inp && !inp.value) inp.value=cached.city||'';
+  }
+}
+async function loadConcierge(){
+  const city=q('c_city'); if(!city){ toast('Type a destination city first'); return; }
+  state.conciergeCity=city;
+  const out=document.getElementById('concOut'); out.innerHTML='<div class="empty">Preparing your briefing...</div>';
+  try{
+    const d=await api('/v1/concierge?city='+encodeURIComponent(city)+'&category='+encodeURIComponent(state.conciergeCategory));
+    state.concierge=d;
+    try{ localStorage.setItem('tc.concierge.last', JSON.stringify({city:city, data:d})); }catch(e){}
+    renderBriefing(clear(out), d, false);
+  }catch(e){
+    const cached=conciergeCache();
+    if(cached && cached.data && cached.city && cached.city.toLowerCase()===city.toLowerCase()){
+      renderBriefing(clear(out), cached.data, true);
+      toast('You look offline. Showing your saved briefing.');
+    } else {
+      out.innerHTML='<div class="empty">'+esc(e.message)+'</div>';
+    }
+  }
+}
+function renderBriefing(box, d, fromCache){
+  const dest=d.destination||{};
+  const head=el('<div class="card"></div>');
+  const where=[dest.country, dest.timezone].filter(Boolean).join(' · ');
+  head.appendChild(el('<div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-weight:800;font-size:18px">'+esc(dest.name||dest.query||'')+'</div><div class="sub" style="margin:3px 0 0">'+esc(where)+'</div></div>'+(fromCache?'<span class="badge">saved offline</span>':'')+'</div>'));
+  box.appendChild(head);
+  const s=d.sections||{};
+
+  if(s.weather && s.weather.status==='ok' && s.weather.data && s.weather.data.days){
+    const card=el('<div class="card"></div>');
+    card.appendChild(el('<div style="font-weight:700;margin-bottom:10px">Next days</div>'));
+    const row=el('<div class="wx-row"></div>');
+    s.weather.data.days.forEach(day=>{
+      const hi=day.tempMaxC==null?'-':Math.round(day.tempMaxC), lo=day.tempMinC==null?'-':Math.round(day.tempMinC);
+      row.appendChild(el('<div class="wx"><div class="d">'+esc(weekday(day.date))+'</div><div class="i">'+wxIcon(day.description)+'</div><div class="t">'+hi+'° <span>'+lo+'°</span></div></div>'));
+    });
+    card.appendChild(row); box.appendChild(card);
+  } else if(s.weather && s.weather.status==='unavailable'){
+    box.appendChild(el('<div class="card"><div class="sub" style="margin:0">Weather is unavailable right now. We say so instead of guessing.</div></div>'));
+  }
+
+  if(s.holidays && s.holidays.status==='ok' && s.holidays.data && s.holidays.data.holidays && s.holidays.data.holidays.length){
+    const card=el('<div class="card"></div>');
+    card.appendChild(el('<div style="font-weight:700;margin-bottom:6px">Public holidays this year</div>'));
+    card.appendChild(el('<div class="sub" style="margin:0 0 8px;font-size:11px">Shops and museums may close or get busy on these days.</div>'));
+    s.holidays.data.holidays.slice(0,6).forEach(h=>{
+      card.appendChild(el('<div class="kv"><span>'+esc(h.localName||h.name)+'</span><span style="color:var(--muted)">'+esc(h.date)+'</span></div>'));
+    });
+    box.appendChild(card);
+  }
+
+  if(s.guide && s.guide.status==='ok' && s.guide.data){
+    const g=s.guide.data;
+    const card=el('<div class="card"></div>');
+    card.appendChild(el('<div style="font-weight:700;margin-bottom:8px">About '+esc(g.title)+'</div>'));
+    card.appendChild(el('<div class="sub" style="margin:0;font-size:13px;line-height:1.65">'+esc(g.summary)+'</div>'));
+    card.appendChild(el('<div style="margin-top:10px"><a class="link" href="'+esc(g.url)+'" target="_blank" rel="noopener">Read the full guide</a></div>'));
+    box.appendChild(card);
+  }
+
+  if(s.places && s.places.status==='ok' && s.places.data){
+    const p=s.places.data;
+    const card=el('<div class="card"></div>');
+    const labels={see:'Things to see', eat:'Places to eat', cafe:'Cafes nearby', drink:'Bars and pubs', park:'Parks and green space'};
+    card.appendChild(el('<div style="font-weight:700;margin-bottom:4px">'+esc(labels[p.category]||'Nearby')+'</div>'));
+    if(!p.places.length){ card.appendChild(el('<div class="sub" style="margin:6px 0 0">Nothing mapped in this category yet. Try another one.</div>')); }
+    p.places.forEach(pl=>{
+      const line=el('<div class="place"><div class="nm">'+esc(pl.name)+'<small>'+esc(pl.kind||'')+'</small></div></div>');
+      const map=el('<a class="chip" style="font-size:12px;text-decoration:none" href="'+esc(pl.mapUrl)+'" target="_blank" rel="noopener">Map</a>');
+      line.appendChild(map); card.appendChild(line);
+    });
+    box.appendChild(card);
+  } else if(s.places && s.places.status==='unavailable'){
+    box.appendChild(el('<div class="card"><div class="sub" style="margin:0">Nearby places are unavailable right now.</div></div>'));
+  }
+
+  if(Array.isArray(d.attribution) && d.attribution.length){
+    box.appendChild(el('<div class="attribution">'+d.attribution.map(esc).join(' · ')+'</div>'));
+  }
+}
 
 /* ---------- Account ---------- */
 function signInPrompt(msg){ const c=el('<div class="card"><div class="sub" style="margin:0 0 12px">'+esc(msg)+'</div></div>'); const b=el('<button class="btn">Sign in or join</button>'); b.onclick=()=>go('account'); c.appendChild(b); return c; }

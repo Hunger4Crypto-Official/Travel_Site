@@ -27,6 +27,10 @@ import { assertProductionReady } from './src/config/validate.js';
 import { IdempotencyStore } from './src/utils/idempotencyStore.js';
 import { AuditLog } from './src/observability/auditLog.js';
 import { createPublicHolidays } from './src/enrichment/publicHolidays.js';
+import { createWeather } from './src/enrichment/weather.js';
+import { createPlaces } from './src/enrichment/places.js';
+import { createGuides } from './src/enrichment/guides.js';
+import { createConcierge } from './src/enrichment/concierge.js';
 import { fetchJson } from './src/utils/httpClient.js';
 
 loadDotEnv({ path: new URL('./.env', import.meta.url).pathname });
@@ -115,7 +119,15 @@ const idempotencyStore = new IdempotencyStore();
 const auditLog = new AuditLog({ filePath: config.auditLogFile, maxEntries: config.auditLogMaxEntries });
 const holidays = createPublicHolidays({ fetchJson, enabled: config.holidaysEnabled });
 
-const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, assets, accountService, bookingService, billingService, loyaltyService, assistantService, authLimiter, writeLimiter, offerSecret, idempotencyStore, auditLog, holidays }));
+// In-trip concierge: weather (Open-Meteo), nearby places (OpenStreetMap
+// Overpass), and destination guides (Wikivoyage), composed with the public
+// holidays above. All keyless and enrichment only; never pricing or booking.
+const weather = createWeather({ fetchJson, enabled: config.conciergeEnabled, timeoutMs: config.providerTimeoutMs });
+const places = createPlaces({ fetchJson, enabled: config.conciergeEnabled, timeoutMs: config.providerTimeoutMs });
+const guides = createGuides({ fetchJson, enabled: config.conciergeEnabled, timeoutMs: config.providerTimeoutMs });
+const concierge = createConcierge({ weather, places, guides, holidays });
+
+const server = createServer((req, res) => handleRequest(req, res, { engine, brand, logger, config, openapiSpec, pages, assets, accountService, bookingService, billingService, loyaltyService, assistantService, authLimiter, writeLimiter, offerSecret, idempotencyStore, auditLog, holidays, concierge }));
 
 server.listen(config.port, () => {
   logger.info('Server started', { service: brand.name, acronym: brand.acronym, port: config.port, nodeEnv: config.nodeEnv });

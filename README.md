@@ -153,6 +153,25 @@ then returns `404`). The curated *awesome-scrape-free-apis* list was evaluated f
 out to be entirely RapidAPI-hosted and key-required, so Nager.Date was used instead as a genuinely
 no-key source alongside the existing keyless Frankfurter currency converter.
 
+## In-trip Concierge (keyless, offline-friendly)
+
+`GET /v1/concierge?city=Lisbon&category=see` composes one briefing for a destination from free,
+keyless community sources, and the PWA ships a dedicated mobile-first **Concierge** tab for it:
+
+- **Weather** for the next days (Open-Meteo, which also provides the geocoding).
+- **Nearby places** by category: see, eat, cafe, drink, park (OpenStreetMap via Overpass, with
+  "open in map" links and ODbL attribution).
+- **A destination guide** intro with a link to the full article (Wikivoyage, CC BY-SA attribution).
+- **Public holidays** for the destination country this year (Nager.Date), because closed museums
+  are the kind of surprise a club should catch for you.
+
+Each section carries its own honest status (`ok`, `empty`, `unavailable`, `disabled`), so one failed
+source never sinks the briefing, and the response lists attribution for exactly the sources that
+delivered. The service worker keeps the last briefing available offline, which is precisely when a
+traveler roaming without data needs it. Everything here is **enrichment only**, behind the same wall
+as the assistant: never pricing, ranking, booking, money, or compliance. Disable with
+`CONCIERGE_ENABLED=false`.
+
 ## Production hardening
 
 Beyond the red-team fixes, a production-readiness pass added the operational safeguards a

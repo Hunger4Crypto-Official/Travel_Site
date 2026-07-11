@@ -52,6 +52,7 @@ test('loadConfig applies safe defaults with an empty environment', () => {
   assert.equal(config.auditLogFile, null);
   assert.equal(config.auditLogMaxEntries, 5000);
   assert.equal(config.holidaysEnabled, true);
+  assert.equal(config.conciergeEnabled, true);
 });
 
 test('loadConfig honors every override and the shared RapidAPI fallback', () => {
@@ -111,7 +112,8 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
     DATABASE_URL: 'postgres://localhost/ttc',
     AUDIT_LOG_FILE: '/tmp/audit.jsonl',
     AUDIT_LOG_MAX_ENTRIES: '99',
-    HOLIDAYS_ENABLED: 'false'
+    HOLIDAYS_ENABLED: 'false',
+    CONCIERGE_ENABLED: 'false'
   });
 
   assert.equal(config.nodeEnv, 'production');
@@ -175,6 +177,7 @@ test('loadConfig honors every override and the shared RapidAPI fallback', () => 
   assert.equal(config.auditLogFile, '/tmp/audit.jsonl');
   assert.equal(config.auditLogMaxEntries, 99);
   assert.equal(config.holidaysEnabled, false);
+  assert.equal(config.conciergeEnabled, false);
 });
 
 test('loadConfig auth flag: explicit REQUIRE_API_KEY and production-without-keys', () => {

@@ -3,6 +3,7 @@ import { authenticate, createRequestContext, responseHeaders } from '../utils/ht
 import { readJsonBody, readRawBody } from '../utils/requestBody.js';
 import { lockOffer } from '../booking/offerLock.js';
 import { toPrometheus } from '../observability/prometheus.js';
+import { CATEGORIES as PLACE_CATEGORIES } from '../enrichment/places.js';
 
 const SOURCE = 'the-travel-club';
 const SESSION_COOKIE = 'tc_session';
@@ -50,7 +51,7 @@ const routeMap = new Map([
 
 // Versioned routes advertised in discovery responses (the unversioned aliases
 // stay available but are not promoted).
-const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/billing', '/v1/loyalty', '/v1/assistant', '/v1/trust', '/v1/holidays', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
+const advertisedRoutes = [...[...routeMap.keys()].filter((path) => path.startsWith('/v1/')), '/v1/flights/calendar', '/v1/prices/history', '/v1/alerts', '/v1/orders', '/v1/billing', '/v1/loyalty', '/v1/assistant', '/v1/trust', '/v1/holidays', '/v1/concierge', '/v1/auth/signup', '/v1/auth/login', '/v1/me'];
 const openapiPaths = new Set(['/openapi.yaml', '/openapi.json', '/v1/openapi.yaml']);
 const protectedPaths = new Set(['/ready', '/metrics']);
 
@@ -67,7 +68,7 @@ const staticAssets = new Map([
   ['/icon.svg', 'image/svg+xml']
 ]);
 
-export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, assets = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null, assistantService = null, authLimiter = null, writeLimiter = null, offerSecret = null, idempotencyStore = null, auditLog = null, holidays = null }) {
+export async function handleRequest(req, res, { engine, brand, logger, config, openapiSpec = null, pages = {}, assets = {}, accountService = null, bookingService = null, billingService = null, loyaltyService = null, assistantService = null, authLimiter = null, writeLimiter = null, offerSecret = null, idempotencyStore = null, auditLog = null, holidays = null, concierge = null }) {
   const context = createRequestContext(req);
   setHeaders(res, responseHeaders({ requestId: context.requestId, origin: req.headers.origin, allowedOrigins: config.allowedOrigins }));
 
@@ -340,9 +341,35 @@ export async function handleRequest(req, res, { engine, brand, logger, config, o
 
     // Public-holidays enrichment (free, keyless). Enrichment only: never pricing
     // or booking. Handy travel context for planning around a destination.
+    // Enrichment 502 messages are written to be safe for clients (upstream
+    // detail lives only on err.cause), so unlike the global catch we surface
+    // them: an honest "this source is down" beats a generic error.
     if (pathname === '/v1/holidays') {
       if (!holidays || !holidays.enabled) return fail(404, 'Holiday enrichment is not enabled on this deployment', { path: pathname });
-      return ok(200, await holidays.holidays(query.country, Number(query.year)), { principal });
+      try {
+        return ok(200, await holidays.holidays(query.country, Number(query.year)), { principal });
+      } catch (err) {
+        if (err.statusCode === 502) return fail(502, err.message, { path: pathname });
+        throw err;
+      }
+    }
+
+    // In-trip concierge briefing (free, keyless sources). Enrichment only: it
+    // composes weather, nearby places, a destination guide, and public holidays
+    // and is never wired to pricing, ranking, booking, money, or compliance.
+    if (pathname === '/v1/concierge') {
+      if (!concierge || !concierge.enabled) return fail(404, 'Concierge is not enabled on this deployment', { path: pathname });
+      if (!query.city) return fail(400, 'city is required, for example /v1/concierge?city=Lisbon', { path: pathname });
+      if (query.category && !Object.hasOwn(PLACE_CATEGORIES, query.category)) {
+        return fail(400, `category must be one of: ${Object.keys(PLACE_CATEGORIES).join(', ')}`, { path: pathname });
+      }
+      try {
+        const briefing = await concierge.lookup(query.city, query.category ? { category: query.category } : {});
+        return ok(200, briefing, { principal });
+      } catch (err) {
+        if (err.statusCode === 502) return fail(502, err.message, { path: pathname });
+        throw err;
+      }
     }
 
     // Price alerts / saved searches (owner-scoped by principal).
@@ -457,6 +484,7 @@ function serviceIndex(brand, now = Date.now()) {
       loyalty: '/v1/loyalty',
       assistant: '/v1/assistant',
       holidays: '/v1/holidays?country=US&year=2026',
+      concierge: '/v1/concierge?city=Lisbon',
       airport: '/v1/airport/info?code=LAX',
       tracking: '/v1/flights/live?icao24=4b1814'
     }

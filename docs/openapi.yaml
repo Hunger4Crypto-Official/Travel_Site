@@ -249,6 +249,32 @@ paths:
         '400': { description: Invalid country code or year. }
         '404': { description: Holiday enrichment is not enabled on this deployment. }
         '502': { description: The upstream holidays source was unavailable or malformed. }
+  /v1/concierge:
+    get:
+      summary: In-trip briefing for a destination (weather, nearby places, guide, holidays).
+      description: >-
+        Composes free, keyless sources (Open-Meteo, OpenStreetMap Overpass,
+        Wikivoyage, Nager.Date) into one briefing. Enrichment only: never wired
+        to pricing, ranking, booking, money, or compliance. Each section carries
+        its own status (ok, empty, unavailable, disabled) so one failed source
+        never sinks the briefing, and `attribution` lists the sources that
+        actually delivered.
+      parameters:
+        - in: query
+          name: city
+          required: true
+          description: Destination city name, for example Lisbon.
+          schema: { type: string, minLength: 1, maxLength: 120 }
+        - in: query
+          name: category
+          required: false
+          description: Nearby-places category.
+          schema: { type: string, enum: [see, eat, cafe, drink, park], default: see }
+      responses:
+        '200': { description: Destination, per-section briefing, and source attribution. }
+        '400': { description: Missing city, invalid category, or invalid destination input. }
+        '404': { description: Concierge disabled, or no destination matched the city. }
+        '502': { description: The destination lookup itself was unavailable. }
   /v1/alerts:
     get:
       summary: List the caller's price alerts / saved searches (owner-scoped by API key).
